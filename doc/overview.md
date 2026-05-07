@@ -29,6 +29,13 @@ This repository is `genie-claw`. Some current integrations still live here as
 transitional adapters, especially `llama.cpp` and Home Assistant, but the code
 should keep those behind narrow boundaries.
 
+For the exact implemented/partial/planned breakdown, use
+[implementation-status.md](implementation-status.md). In short, this repo
+implements the agent runtime, memory, tools, voice pipeline boundaries, local
+HTTP/CLI surfaces, safety gates, and deploy assets. It does not implement the
+final `genie-home-runtime`, `genie-ai-runtime`, `genie-os`, or full
+Matter/Thread device stack.
+
 ## Main Runtime Modes
 
 `genie-core` supports three primary modes:
@@ -104,6 +111,10 @@ GenieOS + custom Jetson hardware
 4. Detect language if configured as `auto`.
 5. Run the same routing/prompt/tool pipeline as text.
 6. Use Piper for spoken output, optionally with language-specific voices.
+
+Current multilingual support is a pipeline capability, not a certified
+full-language product guarantee. Quality depends on the installed Whisper and
+Piper models for each language and on device-level audio testing.
 
 ### Governor Flow
 

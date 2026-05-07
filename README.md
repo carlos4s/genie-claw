@@ -225,6 +225,7 @@ The direct endpoint returns both a rendered `response` string and structured
 ## Documentation
 
 - [doc/README.md](doc/README.md) for the current documentation entry point and repo-wide map
+- [doc/implementation-status.md](doc/implementation-status.md) for what is implemented, partial, external, and planned
 - [CHANGELOG.md](CHANGELOG.md) for alpha release notes
 - [GETTING_STARTED.md](GETTING_STARTED.md) for local dev, Docker, and Jetson bring-up
 - [ARCHITECTURE.md](ARCHITECTURE.md) for the Genie ecosystem and repo-boundary architecture

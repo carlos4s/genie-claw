@@ -13,6 +13,9 @@ Jetson appliance deployment, but the long-term boundary is clear:
 - Home Assistant and `llama.cpp` are transitional lower-runtime adapters.
 - Future `genie-home-runtime` and `genie-ai-runtime` should replace those lower-runtime adapters.
 
+For the current truth matrix, see
+[implementation-status.md](implementation-status.md).
+
 ## Workspace Crates
 
 | Crate | Type | Responsibility |
@@ -171,3 +174,7 @@ Not every unit is always active. Some are optional or deployment-specific.
 - Telegram: feature-gated adapter in `crates/genie-core/src/telegram.rs`
 - ESP32-C6 connectivity sidecar: boundary in `crates/genie-core/src/connectivity/`
 - Web search providers: DuckDuckGo default, optional local SearXNG
+
+The ESP32-C6 boundary currently reports configuration, presence, and intended
+Thread/Matter capabilities. It does not implement the Thread/Matter protocol
+stack or ESP-Hosted-NG; those belong below GenieClaw.

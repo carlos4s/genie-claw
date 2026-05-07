@@ -18,6 +18,7 @@ Where current code is transitional, the docs call that out explicitly.
 ## Start Here
 
 - [overview.md](overview.md): product purpose, runtime modes, and the main request flows
+- [implementation-status.md](implementation-status.md): what is implemented, partial, external, and planned
 - [services-and-crates.md](services-and-crates.md): every crate, binary, and systemd service
 - [configuration.md](configuration.md): config sections, fields, and environment overrides
 - [http-and-cli.md](http-and-cli.md): `genie-core` HTTP API, `genie-api` dashboard API, and `genie-ctl`
@@ -58,8 +59,11 @@ being deleted or moved abruptly.
 
 ## Documentation Scope Notes
 
-This doc set is complete for the current repository surfaces, but there are a
-few intentional limits:
+This doc set describes the current repository surfaces and explicitly separates
+implemented code from roadmap work. For the canonical status matrix, read
+[implementation-status.md](implementation-status.md).
+
+There are a few intentional limits:
 
 - Hardware behavior that depends on a specific Jetson image, kernel, or manual systemd override is documented as operational guidance, not as a stable code contract.
 - `llama.cpp`, Home Assistant, Piper, Whisper, and Telegram Bot API internals are external dependencies. This repo documents how GenieClaw integrates with them, not their full upstream behavior.

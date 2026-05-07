@@ -66,6 +66,7 @@ Around that path:
 | `README.md` | Product-level overview and repo orientation. |
 | `GETTING_STARTED.md` | Local dev, Docker, and Jetson bring-up guide. |
 | `ARCHITECTURE.md` | Higher-level system architecture narrative. |
+| `doc/implementation-status.md` | Current truth table for implemented, partial, external, and planned work. |
 | `CONNECTIVITY.md` | ESP32-C6 UART Thread/Matter sidecar design note plus the `genie-core` versus `genie-os` connectivity split. |
 | `VECTOR_MEMORY.md` | Design note for future semantic memory and optional vector retrieval backends. |
 | Local-only `ROADMAP.md` | Private product and engineering roadmap, ignored by git when present. |

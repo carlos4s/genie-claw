@@ -100,10 +100,10 @@ genie-ctl diag
 genie-ctl support-bundle
 ```
 
-## Alpha 4 Release Checklist
+## Current Alpha Release Checklist
 
-For a `1.0.0-alpha.4` deployment, validate the control-plane hardening surfaces
-after binaries and config are installed:
+For the current workspace version, validate the control-plane hardening
+surfaces after binaries and config are installed:
 
 ```bash
 genie-ctl version
@@ -145,6 +145,10 @@ These are current system realities, not bugs in the docs:
 - LLM context size is constrained by Jetson memory and model choice.
 - Voice mode is more sensitive to process scheduling, audio-device selection, and GPU time-sharing than plain chat mode.
 - The connectivity boundary exists, but full ESP-Hosted-NG OS ownership belongs in `genie-os`, not in this runtime repo.
+- The ESP32-C6 UART path is currently a health/capability boundary, not a full Thread/Matter controller implementation.
+- Local speaker identity is useful for household memory routing, not security-grade authentication.
+- Multilingual voice depends on installed STT/TTS models and per-language device testing.
+- Vector/cuVS semantic memory is design work; the implemented memory runtime uses SQLite FTS today.
 - Web search is intentionally limited to low-risk public lookups and can be disabled completely.
 
 ## Suggested Health Checks
