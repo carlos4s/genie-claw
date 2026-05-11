@@ -278,6 +278,112 @@ The current memory system is built for a shared-room appliance:
 - `memory/INDEX.md` acts as the generated entry point for the durable memory tree
 - person/private/restricted durable namespace notes are kept structured, but non-shared-safe entries are redacted in the markdown projection by default
 
+## Alpha.5 Verified Deploy (2026-05-11)
+
+End-to-end deploy from an x86_64 build VM (`tiny@tiny-virtual-machine`) to a
+Jetson Orin Nano (`aihpc@192.168.55.1`) confirms the alpha.5 workflow: the
+build host only cross-compiles and SCPs; the target receives binaries,
+canonical config, systemd units, and helper scripts in one `make deploy`,
+then `setup-jetson.sh` audits every prereq before enabling services.
+
+### From the build host (cross-compile + deploy via SSH)
+
+```
+tiny@tiny-virtual-machine:~/genie-claw$ make deploy JETSON_HOST=192.168.55.1 JETSON_USER=aihpc
+
+CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar \
+cargo build --release --target aarch64-unknown-linux-gnu -p genie-core
+    Finished `release` profile [optimized] target(s) in 0.32s
+cargo build --release --target aarch64-unknown-linux-gnu -p genie-ctl -p genie-governor -p genie-health -p genie-api
+    Finished `release` profile [optimized] target(s) in 0.28s
+
+Jetson binaries:
+-rwxrwxr-x  2.2M  target/aarch64-unknown-linux-gnu/release/genie-api
+-rwxrwxr-x  4.3M  target/aarch64-unknown-linux-gnu/release/genie-core
+-rwxrwxr-x  917K  target/aarch64-unknown-linux-gnu/release/genie-ctl
+-rwxrwxr-x  2.3M  target/aarch64-unknown-linux-gnu/release/genie-governor
+-rwxrwxr-x  2.2M  target/aarch64-unknown-linux-gnu/release/genie-health
+
+# deploy-binaries: scp + sudo mv for each of the 5 aarch64 binaries
+genie-core      100% 4317KB   7.0MB/s   00:00
+genie-ctl       100%  917KB   6.5MB/s   00:00
+genie-governor  100% 2282KB   9.2MB/s   00:00
+genie-health    100% 2157KB  10.5MB/s   00:00
+genie-api       100% 2249KB  10.3MB/s   00:00
+
+# deploy-config: force-overwrite — repo is the single source of truth
+Config deployed — /etc/geniepod/geniepod.toml refreshed from repo.
+WARNING: any hand-edits on the target were overwritten. Keep secrets in env vars
+         (HA_TOKEN, TELEGRAM_BOT_TOKEN, etc.), not in geniepod.toml directly.
+
+# deploy-systemd: 11 units (9 .service + 2 .target)
+# deploy-docker:  compose.yml -> /opt/geniepod/docker/
+# deploy-setup:   5 helper scripts + setup-jetson.sh -> /opt/geniepod/bin/
+
+=== Deployed to aihpc@192.168.55.1 ===
+  Binaries: /opt/geniepod/bin/
+  Config:   /etc/geniepod/
+  Systemd:  /etc/systemd/system/
+
+Run first-time setup on the Jetson:
+  ssh aihpc@192.168.55.1 'bash /opt/geniepod/setup-jetson.sh'
+```
+
+### On the Jetson (first-time setup audit)
+
+```
+aihpc@ubuntu:/opt/geniepod$ bash /opt/geniepod/setup-jetson.sh
+=== GeniePod Jetson Setup ===
+
+[1/6] Creating directories...
+[2/6] Checking binaries...
+  OK: genie-core (4.3M)
+  OK: genie-governor (2.3M)
+  OK: genie-health (2.2M)
+  OK: genie-api (2.2M)
+  OK: genie-ctl (920K)
+  OK: genie-audio-init (4.0K)
+[3/6] Checking config...
+  OK: /etc/geniepod/geniepod.toml
+  Secured config permissions
+[4/6] Checking LLM model...
+  OK: phi-4-mini-instruct-q4_k_m.gguf (2.4G)
+[5/6] Checking llama.cpp...
+  OK: llama-server
+  OK: docker compose
+[5b/6] Setting Jetson performance mode...
+  Set nvpmodel to mode 1 (25W / max speed)
+  Clocks locked to max
+[5c/6] Applying memory optimizations...
+  sysctl already configured
+[5e/6] Checking voice runtime prerequisites...
+  OK: whisper-cli (928K) at /opt/geniepod/bin/whisper-cli
+  OK: ggml-small.bin (466M)
+  OK: piper (5.1M) at /opt/geniepod/piper/piper
+  OK: en_US-amy-medium.onnx (61M)
+[6/6] Enabling systemd services...
+  Enabled: geniepod.target
+  Enabled: homeassistant
+  Enabled: genie-audio
+  Enabled: genie-llm
+  Enabled: genie-core
+  Enabled: genie-governor
+  Enabled: genie-health
+  Enabled: genie-api
+  Enabled: genie-mqtt
+[genie-audio-init] WARN: card APE has no I2S2 controls — overlay not applied? skipping route setup.
+
+=== Setup complete ===
+```
+
+The final `[genie-audio-init] WARN` is benign in this snapshot — the Jetson's
+40-pin I2S2 overlay was not active at this run; on hosts where the overlay is
+applied via `sudo /opt/nvidia/jetson-io/jetson-io.py`, the same script
+reports each of the 10 amixer `cset` lines and exits with status 0. See
+[`doc/lyrat-jetson-audio.md`](doc/lyrat-jetson-audio.md) for the full LyraT
+audio frontend setup.
+
 ## License
 
 GNU Affero General Public License v3.0
