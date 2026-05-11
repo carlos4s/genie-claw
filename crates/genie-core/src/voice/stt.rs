@@ -470,7 +470,54 @@ pub async fn record_audio(device: &str, sample_rate: u32, duration_secs: u32) ->
         "recording complete"
     );
 
-    Ok(wav_path)
+    // Peak-normalize the captured audio so whisper sees nominal speech levels.
+    // The ES8388 (and most onboard codec) default PGA gains leave typical
+    // home-distance speech ~15-25 dB below clipping; measured RMS on a LyraT
+    // V4.3 capture at conversational distance was ~0.01 (≈-40 dBFS). Sending
+    // such weak audio to whisper produces unreliable transcripts even with
+    // the English-only decoder. `sox gain -n -3` finds the peak and applies a
+    // single linear gain so the loudest sample lands at -3 dBFS — quiet bits
+    // stay quiet (no compression), and headroom against clipping is preserved.
+    let normalized_path = format!("/tmp/geniepod-rec-{}-norm.wav", std::process::id());
+    match Command::new("sox")
+        .args([
+            wav_path.as_str(),
+            normalized_path.as_str(),
+            "gain",
+            "-n",
+            "-3",
+        ])
+        .output()
+        .await
+    {
+        Ok(out)
+            if out.status.success()
+                && tokio::fs::metadata(&normalized_path)
+                    .await
+                    .map(|m| m.len() > 44)
+                    .unwrap_or(false) =>
+        {
+            let _ = tokio::fs::remove_file(&wav_path).await;
+            tracing::info!(
+                path = %normalized_path,
+                "normalized audio (gain -n -3 dBFS)"
+            );
+            Ok(normalized_path)
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(
+                stderr = stderr.lines().next().unwrap_or(""),
+                "sox normalization failed (status {:?}); using raw recording",
+                out.status.code()
+            );
+            Ok(wav_path)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "sox not available; using raw recording (install sox for better STT accuracy on quiet captures)");
+            Ok(wav_path)
+        }
+    }
 }
 
 /// Write raw PCM data as a WAV file.

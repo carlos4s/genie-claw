@@ -174,6 +174,17 @@ else
     VOICE_MISSING=1
 fi
 
+# alpha.5: record_audio peak-normalizes captures with `sox gain -n` so
+# weak mic signals reach whisper at nominal level. Not strictly required
+# (genie-core falls back to raw recording with a warning), but strongly
+# recommended for accuracy.
+if command -v sox > /dev/null 2>&1; then
+    echo "  OK: sox ($(sox --version 2>/dev/null | head -1 | sed 's/^.*: //'))"
+else
+    echo "  RECOMMEND: sox not installed — install with: sudo apt install -y sox"
+    echo "             (genie-core falls back to raw audio, but STT accuracy suffers on quiet captures)"
+fi
+
 # alpha.5: whisper-server is preferred for STT (long-running, model stays in
 # GPU memory). Optional in dev hosts where whisper_port = 0 forces CLI mode.
 WHISPER_SERVER="$GENIEPOD_DIR/bin/whisper-server"
