@@ -21,6 +21,14 @@
   Jetson-IO overlay, byte-exact verification) lives in the
   `ai-hardware-engineer-roadmap` LyraT-Jetson guide; this page covers only
   the genie-claw integration, reboot persistence, and known limitations.
+- `setup-jetson.sh` now audits voice-runtime prerequisites (`whisper-cli`,
+  whisper model, `piper`, piper voice + `.onnx.json` sidecar) against the
+  paths in `[core]` config. Voice prereqs are not auto-downloaded — too
+  large and license-sensitive — but the install script now surfaces what
+  is missing with concrete install pointers instead of letting the first
+  voice-loop invocation fail mysteriously. The `geniepod.target` symlink
+  is also created so every `WantedBy=geniepod.target` service auto-starts
+  on boot.
 
 ### Changed
 

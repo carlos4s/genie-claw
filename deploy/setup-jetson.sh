@@ -142,6 +142,75 @@ if ! grep -q "cma=256M" /proc/cmdline 2>/dev/null; then
     echo "    sudo reboot"
 fi
 
+# 5e. Check voice runtime prerequisites (Whisper STT + Piper TTS).
+# These are not auto-downloaded — too large + license-sensitive — but we
+# surface missing pieces here so the first voice-loop invocation does not
+# fail mysteriously. Paths are read from /etc/geniepod/geniepod.toml so
+# user-customized layouts are respected.
+echo "[5e/6] Checking voice runtime prerequisites..."
+
+read_toml_string() {
+    awk -F'"' "/^$1 = / {print \$2; exit}" "$CONFIG_DIR/geniepod.toml" 2>/dev/null
+}
+
+WHISPER_CLI="$(read_toml_string whisper_cli_path)"
+WHISPER_CLI="${WHISPER_CLI:-$GENIEPOD_DIR/bin/whisper-cli}"
+WHISPER_MODEL="$(read_toml_string whisper_model)"
+WHISPER_MODEL="${WHISPER_MODEL:-$MODEL_DIR/ggml-small.bin}"
+PIPER_BIN="$(read_toml_string piper_path)"
+PIPER_BIN="${PIPER_BIN:-$GENIEPOD_DIR/piper/piper}"
+PIPER_VOICE="$(read_toml_string piper_model)"
+PIPER_VOICE="${PIPER_VOICE:-$GENIEPOD_DIR/voices/en_US-amy-medium.onnx}"
+
+VOICE_MISSING=0
+
+if [ -x "$WHISPER_CLI" ]; then
+    echo "  OK: whisper-cli ($(du -h "$WHISPER_CLI" | cut -f1)) at $WHISPER_CLI"
+else
+    echo "  MISSING: whisper-cli at $WHISPER_CLI"
+    VOICE_MISSING=1
+fi
+
+if [ -f "$WHISPER_MODEL" ]; then
+    echo "  OK: $(basename "$WHISPER_MODEL") ($(du -h "$WHISPER_MODEL" | cut -f1))"
+else
+    echo "  MISSING: whisper model at $WHISPER_MODEL"
+    VOICE_MISSING=1
+fi
+
+if [ -x "$PIPER_BIN" ]; then
+    echo "  OK: piper ($(du -h "$PIPER_BIN" | cut -f1)) at $PIPER_BIN"
+else
+    echo "  MISSING: piper at $PIPER_BIN"
+    VOICE_MISSING=1
+fi
+
+if [ -f "$PIPER_VOICE" ]; then
+    echo "  OK: $(basename "$PIPER_VOICE") ($(du -h "$PIPER_VOICE" | cut -f1))"
+    if [ ! -f "${PIPER_VOICE}.json" ]; then
+        echo "  WARN: ${PIPER_VOICE}.json sidecar missing — piper will fail to load this voice"
+        VOICE_MISSING=1
+    fi
+else
+    echo "  MISSING: piper voice at $PIPER_VOICE"
+    VOICE_MISSING=1
+fi
+
+if [ "$VOICE_MISSING" -eq 1 ]; then
+    echo ""
+    echo "  Voice prerequisites are not auto-downloaded. To install:"
+    echo "    Whisper.cpp:  https://github.com/ggml-org/whisper.cpp"
+    echo "                  (build with -DGGML_CUDA=on on Jetson, then copy"
+    echo "                   build/bin/whisper-cli to $GENIEPOD_DIR/bin/)"
+    echo "    Whisper model: cd whisper.cpp && bash models/download-ggml-model.sh small"
+    echo "                   mv models/ggml-small.bin $MODEL_DIR/"
+    echo "    Piper TTS:    https://github.com/rhasspy/piper/releases"
+    echo "                  (linux_aarch64.tar.gz — extract into $GENIEPOD_DIR/piper/)"
+    echo "    Piper voices: https://huggingface.co/rhasspy/piper-voices"
+    echo "                  (need both .onnx and .onnx.json, place in $GENIEPOD_DIR/voices/)"
+    echo "  Until installed, keep voice_enabled = false in $CONFIG_DIR/geniepod.toml."
+fi
+
 # 6. Enable systemd services.
 echo "[6/6] Enabling systemd services..."
 sudo systemctl daemon-reload
