@@ -491,19 +491,34 @@ pub async fn record_audio(device: &str, sample_rate: u32, duration_secs: u32) ->
         "recording complete"
     );
 
-    // Peak-normalize the captured audio so whisper sees nominal speech levels.
-    // The ES8388 (and most onboard codec) default PGA gains leave typical
-    // home-distance speech ~15-25 dB below clipping; measured RMS on a LyraT
-    // V4.3 capture at conversational distance was ~0.01 (≈-40 dBFS). Sending
-    // such weak audio to whisper produces unreliable transcripts even with
-    // the English-only decoder. `sox gain -n -3` finds the peak and applies a
-    // single linear gain so the loudest sample lands at -3 dBFS — quiet bits
-    // stay quiet (no compression), and headroom against clipping is preserved.
+    // Band-pass filter + peak-normalize the captured audio before STT.
+    //
+    // Why band-pass FIRST:
+    //   The ES8388 ADC on LyraT V4.3 has a noticeable high-frequency noise
+    //   floor. Without filtering, sox's peak-normalization amplifies that
+    //   HF hiss along with speech, so after `gain -n -3` the dominant
+    //   spectral content can sit at 10 kHz+ instead of the 100-500 Hz
+    //   speech band — confirmed via `sox stat` showing rough frequency
+    //   ~10.5 kHz on a quiet test capture. Whisper then hears mostly hiss
+    //   and hallucinates assistant-stock phrases.
+    //
+    //   highpass 100  — kill DC + sub-bass rumble (kept above the lowest
+    //                   male fundamentals around 80 Hz).
+    //   lowpass  7000 — kill ADC hiss and electronic noise above the
+    //                   speech band (kept above sibilance to preserve /s/,
+    //                   /f/, /sh/ phonemes for whisper).
+    //   gain -n -3    — then peak-normalize the *clean* signal to -3 dBFS,
+    //                   so whisper sees nominal speech-level audio with
+    //                   the noise floor still relatively suppressed.
     let normalized_path = format!("/tmp/geniepod-rec-{}-norm.wav", std::process::id());
     match Command::new("sox")
         .args([
             wav_path.as_str(),
             normalized_path.as_str(),
+            "highpass",
+            "100",
+            "lowpass",
+            "7000",
             "gain",
             "-n",
             "-3",
@@ -526,7 +541,7 @@ pub async fn record_audio(device: &str, sample_rate: u32, duration_secs: u32) ->
             let _ = tokio::fs::remove_file(&wav_path).await;
             tracing::info!(
                 path = %normalized_path,
-                "normalized audio (gain -n -3 dBFS)"
+                "preprocessed audio (highpass 100 Hz, lowpass 7 kHz, peak-normalize -3 dBFS)"
             );
             Ok(normalized_path)
         }
