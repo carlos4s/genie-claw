@@ -9,8 +9,7 @@ Voice in, voice out, controls Home Assistant, no cloud.**
 - 🔒 Private by default — no audio, no transcripts, no model traffic leaves the box
 - 🦀 Rust runtime, ~8 GB Jetson Orin Nano target, alpha-grade today
 
-<!-- TODO: replace with a real demo capture (voice → LLM → HA action, ≤30 s). -->
-<!-- Recommended: 720p / 30 fps, hosted on YouTube + linked here as a thumbnail. -->
+![GenieClaw](doc/assets/genie-claw.png)
 
 > **Status:** `v1.0.0-alpha.4`. The voice loop, the Home Assistant integration,
 > and the safety/audit surfaces are working end-to-end on Jetson Orin Nano Super
