@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use anyhow::Result;
 
-use super::client::{LlmClient, Message};
+use super::{LlmClient, Message};
 
 /// LLM client with retry logic and graceful degradation.
 ///
 /// Wraps LlmClient to handle:
-/// - Connection failures (llama.cpp restarting during governor mode switch)
+/// - Connection failures (backend restarting during governor mode switch)
 /// - Timeout on slow responses (large context, cold model)
 /// - Graceful fallback messages when LLM is completely unavailable
 pub struct RetryLlmClient {
@@ -87,14 +87,14 @@ impl RetryLlmClient {
         &self,
         messages: &[Message],
         max_tokens: Option<u32>,
-        on_token: F,
+        mut on_token: F,
     ) -> String
     where
-        F: FnMut(&str),
+        F: FnMut(&str) + Send,
     {
         match tokio::time::timeout(
             self.timeout,
-            self.inner.chat_stream(messages, max_tokens, on_token),
+            self.inner.chat_stream(messages, max_tokens, &mut on_token),
         )
         .await
         {

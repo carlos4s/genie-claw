@@ -3,29 +3,29 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
-/// Client for llama.cpp `--server` OpenAI-compatible API.
+/// Raw HTTP client for local OpenAI-compatible chat completion backends.
 ///
 /// Supports both blocking completion and streaming (SSE).
 /// No reqwest/hyper — raw HTTP over TCP to localhost.
-pub struct LlmClient {
+pub struct OpenAiCompatClient {
+    backend_name: &'static str,
     host: String,
     port: u16,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ChatRequest {
-    pub model: String,
-    pub messages: Vec<Message>,
+pub(crate) struct ChatRequest {
+    pub(crate) model: String,
+    pub(crate) messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<u32>,
+    pub(crate) max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    pub stream: bool,
-    /// JSON schema constraint — forces the LLM to output valid JSON matching this schema.
-    /// Supported by llama.cpp `--server` via the `response_format` parameter.
-    /// When set, eliminates tool-calling parsing failures.
+    pub(crate) temperature: Option<f32>,
+    pub(crate) stream: bool,
+    /// JSON schema constraint for backends that support OpenAI-compatible
+    /// `response_format`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_format: Option<ResponseFormat>,
+    pub(crate) response_format: Option<ResponseFormat>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,20 +61,20 @@ pub struct Message {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ChatResponse {
-    pub choices: Vec<Choice>,
+pub(crate) struct ChatResponse {
+    pub(crate) choices: Vec<Choice>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Choice {
-    pub message: Option<Message>,
-    pub delta: Option<Delta>,
-    pub finish_reason: Option<String>,
+pub(crate) struct Choice {
+    pub(crate) message: Option<Message>,
+    pub(crate) delta: Option<Delta>,
+    pub(crate) finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Delta {
-    pub content: Option<String>,
+pub(crate) struct Delta {
+    pub(crate) content: Option<String>,
 }
 
 #[derive(Debug)]
@@ -83,23 +83,29 @@ struct HttpResponse {
     body: String,
 }
 
-impl LlmClient {
-    pub fn new(host: &str, port: u16) -> Self {
+impl OpenAiCompatClient {
+    pub fn new(backend_name: &'static str, host: &str, port: u16) -> Self {
         Self {
+            backend_name,
             host: host.to_string(),
             port,
         }
     }
 
-    pub fn from_url(url: &str) -> Self {
+    pub fn from_url(backend_name: &'static str, url: &str) -> Self {
         let stripped = url.strip_prefix("http://").unwrap_or(url);
         let (host_port, _) = stripped.split_once('/').unwrap_or((stripped, ""));
         let (host, port_str) = host_port.split_once(':').unwrap_or((host_port, "8080"));
         let port = port_str.parse().unwrap_or(8080);
         Self {
+            backend_name,
             host: host.to_string(),
             port,
         }
+    }
+
+    pub fn backend_name(&self) -> &str {
+        self.backend_name
     }
 
     /// Send a chat completion request, return the full response.
@@ -108,7 +114,7 @@ impl LlmClient {
     }
 
     /// Send a chat request forcing JSON output.
-    /// Uses llama.cpp's grammar constraint to guarantee valid JSON.
+    /// Uses backend response-format support when available.
     /// Eliminates tool-calling parsing failures.
     pub async fn chat_json(&self, messages: &[Message], max_tokens: Option<u32>) -> Result<String> {
         self.chat_with_format(messages, max_tokens, Some(ResponseFormat::json()))
@@ -155,15 +161,17 @@ impl LlmClient {
         let response = self.http_post("/v1/chat/completions", &body).await?;
         if response.status != 200 {
             anyhow::bail!(
-                "llama.cpp {}: {}",
+                "{} {}: {}",
+                self.backend_name,
                 response.status,
-                llama_error_message(&response.body)
+                backend_error_message(&response.body)
             );
         }
 
         let chat_resp: ChatResponse = serde_json::from_str(&response.body).map_err(|e| {
             anyhow::anyhow!(
-                "failed to parse llama.cpp response: {}; body: {}",
+                "failed to parse {} response: {}; body: {}",
+                self.backend_name,
                 e,
                 truncate_body(&response.body)
             )
@@ -180,15 +188,12 @@ impl LlmClient {
 
     /// Send a streaming chat request. Calls `on_token` for each token as it arrives.
     /// Returns the full assembled response.
-    pub async fn chat_stream<F>(
+    pub async fn chat_stream(
         &self,
         messages: &[Message],
         max_tokens: Option<u32>,
-        mut on_token: F,
-    ) -> Result<String>
-    where
-        F: FnMut(&str),
-    {
+        on_token: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<String> {
         let request = ChatRequest {
             model: "default".into(),
             messages: messages.to_vec(),
@@ -231,7 +236,12 @@ impl LlmClient {
                         while let Some(line) = lines.next_line().await? {
                             error_body.push_str(&line);
                         }
-                        anyhow::bail!("llama.cpp {}: {}", status, llama_error_message(&error_body));
+                        anyhow::bail!(
+                            "{} {}: {}",
+                            self.backend_name,
+                            status,
+                            backend_error_message(&error_body)
+                        );
                     }
                 }
                 continue;
@@ -416,7 +426,7 @@ fn flatten_system_into_first_user(messages: &[Message]) -> Vec<Message> {
     flattened
 }
 
-fn llama_error_message(body: &str) -> String {
+fn backend_error_message(body: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|json| {
@@ -449,7 +459,7 @@ mod tests {
 
     #[test]
     fn parse_url() {
-        let client = LlmClient::from_url("http://127.0.0.1:8080/v1");
+        let client = OpenAiCompatClient::from_url("test-backend", "http://127.0.0.1:8080/v1");
         assert_eq!(client.host, "127.0.0.1");
         assert_eq!(client.port, 8080);
     }
