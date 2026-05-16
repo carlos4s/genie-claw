@@ -86,14 +86,15 @@ impl ServiceCtl {
         Ok(())
     }
 
-    /// Reload llama.cpp server with a different model.
+    /// Reload the configured LLM service with a different model.
     /// Sends SIGHUP or restarts the service with new args.
-    pub async fn swap_llm_model(model_path: &str) -> Result<()> {
-        tracing::info!(model = model_path, "swapping LLM model");
+    pub async fn swap_llm_model(unit: &str, model_path: &str) -> Result<()> {
+        let unit = normalize_systemd_unit(unit);
+        tracing::info!(unit = %unit, model = model_path, "swapping LLM model");
 
         // Write the model path to the override config, then restart.
-        let override_dir = "/etc/systemd/system/genie-llm.service.d";
-        tokio::fs::create_dir_all(override_dir).await?;
+        let override_dir = llm_override_dir_for_unit(&unit);
+        tokio::fs::create_dir_all(&override_dir).await?;
 
         let override_content = format!(
             "[Service]\nEnvironment=\"GENIEPOD_LLM_MODEL={}\"\n",
@@ -112,7 +113,7 @@ impl ServiceCtl {
             .await?;
 
         Command::new("systemctl")
-            .args(["restart", "genie-llm.service"])
+            .args(["restart", &unit])
             .output()
             .await?;
 
@@ -137,5 +138,39 @@ impl ServiceCtl {
             tracing::warn!(%stderr, "zram setup may have partially failed");
         }
         Ok(())
+    }
+}
+
+fn normalize_systemd_unit(unit: &str) -> String {
+    if unit.contains('.') {
+        unit.to_string()
+    } else {
+        format!("{unit}.service")
+    }
+}
+
+fn llm_override_dir_for_unit(unit: &str) -> String {
+    format!("/etc/systemd/system/{}.d", normalize_systemd_unit(unit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_systemd_unit_names() {
+        assert_eq!(normalize_systemd_unit("genie-llm"), "genie-llm.service");
+        assert_eq!(
+            normalize_systemd_unit("genie-ai-runtime.service"),
+            "genie-ai-runtime.service"
+        );
+    }
+
+    #[test]
+    fn llm_override_dir_uses_configured_unit() {
+        assert_eq!(
+            llm_override_dir_for_unit("genie-ai-runtime.service"),
+            "/etc/systemd/system/genie-ai-runtime.service.d"
+        );
     }
 }

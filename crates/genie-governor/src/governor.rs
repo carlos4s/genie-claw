@@ -187,47 +187,51 @@ impl Governor {
         tracing::info!(from = %from, to = %target, "mode transition");
 
         // Stop services not needed in target mode.
-        for unit in target.stopped_services() {
-            if !self.should_manage_service(unit) {
+        for alias in target.stopped_services() {
+            let Some(unit) = self.service_unit_for_alias(alias) else {
                 continue;
-            }
-            let _ = ServiceCtl::stop(unit).await;
+            };
+            let _ = ServiceCtl::stop(&unit).await;
         }
 
         // Handle LLM model swap.
         match (from, target) {
             (_, Mode::Media) => {
-                let _ = ServiceCtl::stop("genie-llm.service").await;
+                let unit = self.llm_service_unit();
+                let _ = ServiceCtl::stop(&unit).await;
             }
             (Mode::Media, _) => {
                 if let Some(model) = target.llm_model() {
                     let path = format!("/opt/geniepod/models/{}", model);
-                    let _ = ServiceCtl::swap_llm_model(&path).await;
+                    let unit = self.llm_service_unit();
+                    let _ = ServiceCtl::swap_llm_model(&unit, &path).await;
                 }
                 let _ = tokio::fs::remove_file("/run/geniepod/media_mode").await;
             }
             (Mode::Day | Mode::NightA, Mode::NightB) => {
                 if let Some(model) = Mode::NightB.llm_model() {
                     let path = format!("/opt/geniepod/models/{}", model);
-                    let _ = ServiceCtl::swap_llm_model(&path).await;
+                    let unit = self.llm_service_unit();
+                    let _ = ServiceCtl::swap_llm_model(&unit, &path).await;
                 }
             }
             (Mode::NightB, Mode::Day) => {
                 if let Some(model) = Mode::Day.llm_model() {
                     let path = format!("/opt/geniepod/models/{}", model);
-                    let _ = ServiceCtl::swap_llm_model(&path).await;
+                    let unit = self.llm_service_unit();
+                    let _ = ServiceCtl::swap_llm_model(&unit, &path).await;
                 }
             }
             _ => {}
         }
 
         // Start services required by target mode.
-        for unit in target.required_services() {
-            if !self.should_manage_service(unit) {
+        for alias in target.required_services() {
+            let Some(unit) = self.service_unit_for_alias(alias) else {
                 continue;
-            }
-            if !ServiceCtl::is_active(unit).await {
-                let _ = ServiceCtl::start(unit).await;
+            };
+            if !ServiceCtl::is_active(&unit).await {
+                let _ = ServiceCtl::start(&unit).await;
             }
         }
 
@@ -260,6 +264,16 @@ impl Governor {
 
     fn should_manage_service(&self, alias: &str) -> bool {
         self.config.manages_service_alias(alias)
+    }
+
+    fn service_unit_for_alias(&self, alias: &str) -> Option<String> {
+        self.config.service_unit_for_alias(alias)
+    }
+
+    fn llm_service_unit(&self) -> String {
+        self.config
+            .service_unit_for_alias("llm")
+            .unwrap_or_else(|| "genie-llm.service".into())
     }
 }
 
@@ -367,13 +381,13 @@ mod tests {
     fn mode_required_services() {
         let day_services = Mode::Day.required_services();
         assert!(day_services.contains(&"genie-core"));
-        assert!(day_services.contains(&"genie-llm"));
+        assert!(day_services.contains(&"llm"));
         assert!(day_services.contains(&"homeassistant"));
 
         let media_services = Mode::Media.required_services();
         assert!(media_services.contains(&"genie-wakeword"));
         assert!(media_services.contains(&"genie-core"));
-        assert!(!media_services.contains(&"genie-llm")); // LLM unloaded in media.
+        assert!(!media_services.contains(&"llm")); // LLM unloaded in media.
     }
 
     #[test]
@@ -381,6 +395,7 @@ mod tests {
         assert!(Mode::Day.stopped_services().is_empty());
         assert!(Mode::NightB.stopped_services().contains(&"homeassistant"));
         assert!(Mode::NightB.stopped_services().contains(&"nextcloud"));
+        assert!(Mode::Media.stopped_services().contains(&"llm"));
     }
 
     #[test]
@@ -425,8 +440,24 @@ mod tests {
         let gov = make_governor();
 
         assert!(gov.should_manage_service("genie-core"));
+        assert!(gov.should_manage_service("llm"));
         assert!(!gov.should_manage_service("homeassistant"));
         assert!(!gov.should_manage_service("nextcloud"));
         assert!(!gov.should_manage_service("jellyfin"));
+    }
+
+    #[test]
+    fn resolves_llm_alias_to_configured_service_unit() {
+        let mut config = test_config();
+        config.services.llm.systemd_unit = "genie-ai-runtime.service".into();
+        let db_path = std::env::temp_dir().join("geniepod-test-gov-llm-unit.db");
+        let store = Store::open(&db_path).unwrap();
+        let gov = Governor::new(config, store);
+
+        assert_eq!(
+            gov.service_unit_for_alias("llm").as_deref(),
+            Some("genie-ai-runtime.service")
+        );
+        assert_eq!(gov.llm_service_unit(), "genie-ai-runtime.service");
     }
 }

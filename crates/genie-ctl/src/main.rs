@@ -989,14 +989,31 @@ async fn cmd_connectivity() -> Result<()> {
 }
 
 async fn cmd_health() -> Result<()> {
-    // Check each service.
+    let core_health = match http_get(CORE_URL, "/api/health").await {
+        Ok(body) => {
+            println!("  [OK]   genie-core");
+            serde_json::from_str::<serde_json::Value>(&body).ok()
+        }
+        Err(_) => {
+            println!("  [DOWN] genie-core");
+            None
+        }
+    };
+
+    if let Some(health) = &core_health {
+        let label = llm_service_label(health.get("llm_backend").and_then(|v| v.as_str()));
+        match health.get("llm").and_then(|v| v.as_str()) {
+            Some("connected") => println!("  [OK]   {}", label),
+            Some(_) => println!("  [DOWN] {}", label),
+            None => println!("  [DOWN] {}", label),
+        }
+    }
+
+    // Check each remaining HTTP service.
     let services = [
-        ("genie-core", CORE_URL, "/api/health"),
-        ("llama.cpp", "127.0.0.1:8080", "/health"),
         ("Home Assistant", "127.0.0.1:8123", "/api/"),
         ("genie-api", "127.0.0.1:3080", "/api/status"),
     ];
-
     for (name, addr, path) in &services {
         match http_get(addr, path).await {
             Ok(_) => println!("  [OK]   {}", name),
@@ -1115,7 +1132,6 @@ async fn cmd_diag() -> Result<()> {
     println!("\n[Services]");
     let services = [
         ("genie-core", CORE_URL, "/api/health"),
-        ("llama.cpp", "127.0.0.1:8080", "/health"),
         ("genie-api", "127.0.0.1:3080", "/api/status"),
         ("Home Assistant", "127.0.0.1:8123", "/api/"),
     ];
@@ -1156,6 +1172,9 @@ async fn cmd_diag() -> Result<()> {
         }
         if let Some(v) = data.get("llm").and_then(|v| v.as_str()) {
             println!("  LLM:           {}", v);
+        }
+        if let Some(v) = data.get("llm_backend").and_then(|v| v.as_str()) {
+            println!("  LLM Backend:   {}", v);
         }
         if let Some(v) = data.get("memories").and_then(|v| v.as_u64()) {
             println!("  Memories:      {}", v);
@@ -1228,6 +1247,7 @@ async fn cmd_diag() -> Result<()> {
         "genie-health",
         "genie-api",
         "llama-server",
+        "genie-ai-runtime",
     ] {
         let path = format!("{}/{}", bin_dir, name);
         if std::path::Path::new(&path).exists() {
@@ -1279,7 +1299,6 @@ async fn cmd_diag() -> Result<()> {
 async fn cmd_support_bundle(output_path: &Path) -> Result<()> {
     let services = [
         ("genie-core", CORE_URL, "/api/health"),
-        ("llama.cpp", "127.0.0.1:8080", "/health"),
         ("genie-api", "127.0.0.1:3080", "/api/status"),
         ("Home Assistant", "127.0.0.1:8123", "/api/"),
     ];
@@ -1363,6 +1382,13 @@ async fn http_json_value(addr: &str, path: &str) -> serde_json::Value {
     }
 }
 
+fn llm_service_label(backend: Option<&str>) -> String {
+    match backend.filter(|value| !value.trim().is_empty()) {
+        Some(backend) => format!("LLM ({backend})"),
+        None => "LLM".into(),
+    }
+}
+
 fn read_file_string(path: &str) -> Option<String> {
     std::fs::read_to_string(path)
         .ok()
@@ -1411,20 +1437,43 @@ async fn disk_summary(path: &str) -> serde_json::Value {
 }
 
 fn config_presence() -> Vec<serde_json::Value> {
-    [
+    let mut paths = vec![
         "/etc/geniepod/geniepod.toml",
         "/etc/geniepod/mosquitto.conf",
-        "/etc/systemd/system/genie-core.service",
-        "/etc/systemd/system/genie-llm.service",
     ]
     .into_iter()
-    .map(|path| {
-        serde_json::json!({
-            "path": path,
-            "present": Path::new(path).exists(),
+    .map(String::from)
+    .collect::<Vec<_>>();
+
+    match Config::load() {
+        Ok(config) => {
+            paths.push(systemd_unit_file_path(&config.services.core.systemd_unit));
+            paths.push(systemd_unit_file_path(&config.services.llm.systemd_unit));
+        }
+        Err(_) => {
+            paths.push(systemd_unit_file_path("genie-core.service"));
+            paths.push(systemd_unit_file_path("genie-llm.service"));
+        }
+    }
+
+    paths
+        .into_iter()
+        .map(|path| {
+            serde_json::json!({
+                "path": path,
+                "present": Path::new(&path).exists(),
+            })
         })
-    })
-    .collect()
+        .collect()
+}
+
+fn systemd_unit_file_path(unit: &str) -> String {
+    let unit = if unit.contains('.') {
+        unit.to_string()
+    } else {
+        format!("{unit}.service")
+    };
+    format!("/etc/systemd/system/{unit}")
 }
 
 fn binary_inventory() -> Vec<serde_json::Value> {
@@ -1435,6 +1484,7 @@ fn binary_inventory() -> Vec<serde_json::Value> {
         "genie-health",
         "genie-api",
         "llama-server",
+        "genie-ai-runtime",
     ]
     .into_iter()
     .map(|name| {
@@ -1742,6 +1792,27 @@ mod tests {
         let path = default_support_bundle_path();
         assert!(path.starts_with("/tmp"));
         assert_eq!(path.extension().and_then(|ext| ext.to_str()), Some("json"));
+    }
+
+    #[test]
+    fn llm_service_label_includes_backend_when_known() {
+        assert_eq!(
+            llm_service_label(Some("genie-ai-runtime")),
+            "LLM (genie-ai-runtime)"
+        );
+        assert_eq!(llm_service_label(None), "LLM");
+    }
+
+    #[test]
+    fn systemd_unit_file_path_normalizes_unit_name() {
+        assert_eq!(
+            systemd_unit_file_path("genie-ai-runtime"),
+            "/etc/systemd/system/genie-ai-runtime.service"
+        );
+        assert_eq!(
+            systemd_unit_file_path("genie-llm.service"),
+            "/etc/systemd/system/genie-llm.service"
+        );
     }
 
     #[test]

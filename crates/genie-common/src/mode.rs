@@ -38,13 +38,13 @@ impl Mode {
             Mode::Day | Mode::NightA => &[
                 "genie-wakeword",
                 "genie-core",
-                "genie-llm",
+                "llm",
                 "genie-mqtt",
                 "homeassistant",
             ],
-            Mode::NightB => &["genie-wakeword", "genie-core", "genie-llm", "genie-mqtt"],
+            Mode::NightB => &["genie-wakeword", "genie-core", "llm", "genie-mqtt"],
             Mode::Media => &["genie-wakeword", "genie-core", "genie-mqtt"],
-            Mode::Pressure => &["genie-wakeword", "genie-core", "genie-llm", "genie-mqtt"],
+            Mode::Pressure => &["genie-wakeword", "genie-core", "llm", "genie-mqtt"],
         }
     }
 
@@ -53,7 +53,7 @@ impl Mode {
         match self {
             Mode::Day | Mode::NightA => &[],
             Mode::NightB => &["homeassistant", "nextcloud", "jellyfin"],
-            Mode::Media => &["genie-llm", "nextcloud", "jellyfin"],
+            Mode::Media => &["llm", "nextcloud", "jellyfin"],
             Mode::Pressure => &["nextcloud", "jellyfin"],
         }
     }

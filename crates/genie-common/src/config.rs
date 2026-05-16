@@ -159,7 +159,7 @@ pub struct CoreConfig {
     #[serde(default = "defaults::voice_continuous_secs")]
     pub voice_continuous_secs: u32,
 
-    /// LLM model path (for GPU time-sharing — voice loop restarts llama-server).
+    /// LLM model path used when runtime tooling swaps the configured LLM service.
     #[serde(default = "defaults::llm_model_path")]
     pub llm_model_path: PathBuf,
 
@@ -594,10 +594,38 @@ impl Config {
     /// Whether the current deployment should manage a given service alias.
     pub fn manages_service_alias(&self, alias: &str) -> bool {
         match alias {
+            "core" | "genie-core" | "llm" | "genie-llm" => true,
             "homeassistant" => self.services.homeassistant.is_some(),
             "nextcloud" => self.services.nextcloud.is_some(),
             "jellyfin" => self.services.jellyfin.is_some(),
             _ => true,
+        }
+    }
+
+    /// Resolve a service alias used by runtime tooling to its configured
+    /// systemd unit. Optional services return `None` when they are not
+    /// configured for this deployment.
+    pub fn service_unit_for_alias(&self, alias: &str) -> Option<String> {
+        match alias {
+            "core" | "genie-core" => Some(self.services.core.systemd_unit.clone()),
+            "llm" | "genie-llm" => Some(self.services.llm.systemd_unit.clone()),
+            "homeassistant" => self
+                .services
+                .homeassistant
+                .as_ref()
+                .map(|service| service.systemd_unit.clone()),
+            "nextcloud" => self
+                .services
+                .nextcloud
+                .as_ref()
+                .map(|service| service.systemd_unit.clone()),
+            "jellyfin" => self
+                .services
+                .jellyfin
+                .as_ref()
+                .map(|service| service.systemd_unit.clone()),
+            _ if self.manages_service_alias(alias) => Some(alias.to_string()),
+            _ => None,
         }
     }
 
@@ -875,9 +903,38 @@ bind_host = "0.0.0.0"
         });
 
         assert!(config.manages_service_alias("genie-core"));
+        assert!(config.manages_service_alias("llm"));
         assert!(!config.manages_service_alias("homeassistant"));
         assert!(config.manages_service_alias("nextcloud"));
         assert!(!config.manages_service_alias("jellyfin"));
+    }
+
+    #[test]
+    fn service_unit_aliases_use_configured_units() {
+        let mut config = test_config();
+        config.services.llm.systemd_unit = "genie-ai-runtime.service".into();
+        config.services.nextcloud = Some(ServiceEndpoint {
+            url: "http://127.0.0.1:8180/status.php".into(),
+            systemd_unit: "nextcloud.service".into(),
+        });
+
+        assert_eq!(
+            config.service_unit_for_alias("core").as_deref(),
+            Some("genie-core.service")
+        );
+        assert_eq!(
+            config.service_unit_for_alias("llm").as_deref(),
+            Some("genie-ai-runtime.service")
+        );
+        assert_eq!(
+            config.service_unit_for_alias("genie-llm").as_deref(),
+            Some("genie-ai-runtime.service")
+        );
+        assert_eq!(
+            config.service_unit_for_alias("nextcloud").as_deref(),
+            Some("nextcloud.service")
+        );
+        assert_eq!(config.service_unit_for_alias("jellyfin"), None);
     }
 
     #[test]
