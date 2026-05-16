@@ -149,9 +149,9 @@ pub async fn run(
     tracing::info!(conv_id = %conv_id, "voice conversation started");
 
     if llm.health().await {
-        eprintln!("[voice] LLM server connected");
+        eprintln!("{}", llm_connected_message(llm.backend_name()));
     } else {
-        eprintln!("[voice] WARNING: LLM not reachable — start llama-server first!");
+        eprintln!("{}", llm_unreachable_message(llm.backend_name()));
     }
 
     let use_wakeword = !voice_cfg.wakeword_script.is_empty()
@@ -428,7 +428,11 @@ async fn run_with_wakeword(
                                     eprintln!("[voice] GeniePod: {}", format::for_voice(&response));
                                 }
                                 Err(e) => {
-                                    eprintln!("[voice] Follow-up LLM error: {}", e);
+                                    eprintln!(
+                                        "[voice] Follow-up LLM backend error ({}): {}",
+                                        llm.backend_name(),
+                                        e
+                                    );
                                 }
                             }
 
@@ -991,7 +995,11 @@ async fn voice_cycle(
         Ok(r) => r,
         Err(e) => {
             // Fallback: try non-streaming if streaming fails.
-            eprintln!("[voice] Streaming failed ({}), trying blocking...", e);
+            eprintln!(
+                "[voice] Streaming failed for {} backend ({}), trying blocking...",
+                llm.backend_name(),
+                e
+            );
             match llm.chat(&messages, Some(256)).await {
                 Ok(r) => {
                     let voice_text = format::for_voice(&r);
@@ -1001,7 +1009,7 @@ async fn voice_cycle(
                     r
                 }
                 Err(e2) => {
-                    eprintln!("[voice] LLM error: {}", e2);
+                    eprintln!("[voice] LLM backend error ({}): {}", llm.backend_name(), e2);
                     return true;
                 }
             }
@@ -1145,4 +1153,36 @@ async fn voice_cycle(
     }
 
     true
+}
+
+fn llm_connected_message(backend_name: &str) -> String {
+    format!("[voice] LLM backend connected ({backend_name})")
+}
+
+fn llm_unreachable_message(backend_name: &str) -> String {
+    format!(
+        "[voice] WARNING: LLM backend not reachable ({backend_name}) - check configured service"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn llm_status_messages_include_backend_name() {
+        let connected = llm_connected_message("genie-ai-runtime");
+        let unreachable = llm_unreachable_message("genie-ai-runtime");
+
+        assert!(connected.contains("genie-ai-runtime"));
+        assert!(unreachable.contains("genie-ai-runtime"));
+    }
+
+    #[test]
+    fn llm_unreachable_message_is_backend_neutral() {
+        let unreachable = llm_unreachable_message("genie-ai-runtime");
+
+        assert!(!unreachable.contains("llama-server"));
+        assert!(!unreachable.contains("llama.cpp"));
+    }
 }

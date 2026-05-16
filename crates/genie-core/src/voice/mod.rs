@@ -103,10 +103,14 @@ impl VoiceOrchestrator {
         tracing::info!("GeniePod core ready — type a message (or Ctrl+C to quit)");
 
         // Check LLM health.
+        let backend_name = self.llm.backend_name();
         if self.llm.health().await {
-            tracing::info!("LLM server connected");
+            tracing::info!(backend = %backend_name, "LLM backend connected");
         } else {
-            tracing::warn!("LLM server not reachable — will retry on first request");
+            tracing::warn!(
+                backend = %backend_name,
+                "LLM backend not reachable; will retry on first request"
+            );
         }
 
         let stdin = tokio::io::BufReader::new(tokio::io::stdin());

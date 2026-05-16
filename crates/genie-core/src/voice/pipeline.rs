@@ -127,7 +127,11 @@ impl VoicePipeline {
         let response = match stream_result {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!(error = %e, "LLM error");
+                tracing::error!(
+                    error = %e,
+                    backend = %self.llm.backend_name(),
+                    "LLM backend error"
+                );
                 return Ok(("Sorry, I couldn't process that.".into(), None));
             }
         };
