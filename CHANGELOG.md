@@ -4,6 +4,19 @@
 
 ### Added
 
+- `.github/workflows/cross.yml` — aarch64 Jetson cross-compile workflow
+  for issue #34. Installs `gcc-aarch64-linux-gnu` /
+  `g++-aarch64-linux-gnu`, adds the `aarch64-unknown-linux-gnu` Rust
+  target, then runs the same two-step `cargo build --release --locked
+  --target aarch64-unknown-linux-gnu` recipe `make jetson` uses (with
+  `CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc` and the matching
+  `AR_` override) to produce `genie-core`, `genie-ctl`, `genie-governor`,
+  `genie-health`, and `genie-api`. A post-build verify step asserts
+  each binary is in fact an ELF tagged `ARM aarch64` before uploading
+  them as the `genie-jetson-aarch64-${{ github.sha }}` artifact with a
+  14-day retention. Catches the cross-compile breakage that previously
+  only surfaced at `make jetson` / `make deploy` time. Jetson badge added
+  at the top of the README.
 - Opt-in Qwen3-4B model download in `setup-jetson.sh` (issue #44, Phase 1).
   `deploy/setup-jetson.sh --model qwen3-4b` fetches
   `Qwen3-4B-Q4_K_M.gguf` from `Qwen/Qwen3-4B-GGUF` into
