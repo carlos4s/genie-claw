@@ -170,13 +170,24 @@ async fn main() -> Result<()> {
     let voice_requested = std::env::args().any(|a| a == "--voice")
         || std::env::var("GENIEPOD_VOICE").unwrap_or_default() == "1"
         || config.core.voice_enabled;
+    let wakeword_available =
+        !config.core.wakeword_script.as_os_str().is_empty() && config.core.wakeword_script.exists();
+    let voice_runnable = should_enter_voice_mode(voice_requested, interactive, wakeword_available);
 
     // Whether the running binary actually has the voice subsystem compiled in.
     // When voice was requested but the binary is chat-only (issue #41 feature
     // gate), emit one warning and fall through to the chat path so an existing
     // voice-tagged `geniepod.toml` still deploys cleanly on a chat-only build.
     #[cfg(feature = "voice")]
-    let voice_mode = voice_requested;
+    let voice_mode = {
+        if voice_requested && !voice_runnable {
+            tracing::warn!(
+                "push-to-talk voice mode requested without an interactive terminal and no wakeword script is available; \
+                 running HTTP API only"
+            );
+        }
+        voice_runnable
+    };
     #[cfg(not(feature = "voice"))]
     let voice_mode = {
         if voice_requested {
@@ -187,6 +198,7 @@ async fn main() -> Result<()> {
                  enable the voice loop."
             );
         }
+        let _ = voice_runnable;
         false
     };
 
@@ -357,6 +369,39 @@ fn atty_check() -> bool {
     #[cfg(not(unix))]
     {
         false
+    }
+}
+
+fn should_enter_voice_mode(
+    voice_requested: bool,
+    stdin_interactive: bool,
+    wakeword_available: bool,
+) -> bool {
+    voice_requested && (stdin_interactive || wakeword_available)
+}
+
+#[cfg(test)]
+mod voice_mode_tests {
+    use super::should_enter_voice_mode;
+
+    #[test]
+    fn systemd_push_to_talk_falls_back_to_http() {
+        assert!(!should_enter_voice_mode(true, false, false));
+    }
+
+    #[test]
+    fn terminal_push_to_talk_still_runs() {
+        assert!(should_enter_voice_mode(true, true, false));
+    }
+
+    #[test]
+    fn wakeword_voice_can_run_without_terminal() {
+        assert!(should_enter_voice_mode(true, false, true));
+    }
+
+    #[test]
+    fn voice_disabled_stays_http_only() {
+        assert!(!should_enter_voice_mode(false, true, true));
     }
 }
 
