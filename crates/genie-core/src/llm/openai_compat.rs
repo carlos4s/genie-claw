@@ -172,7 +172,7 @@ impl RequestProfile {
     }
 }
 
-const GENIE_RUNTIME_MAX_BODY_BYTES: usize = 12 * 1024;
+const GENIE_RUNTIME_MAX_BODY_BYTES: usize = 4 * 1024;
 const GENIE_RUNTIME_COMPACT_SYSTEM: &str =
     "You are GeniePod Home. Answer the user's latest request directly and concisely.";
 
