@@ -11,6 +11,19 @@ pub struct OpenAiCompatClient {
     backend_name: &'static str,
     host: String,
     port: u16,
+    request_profile: RequestProfile,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RequestProfile {
+    Generic,
+    GenieAiRuntime,
+}
+
+#[derive(Debug)]
+struct PreparedChatBody {
+    body: String,
+    compacted: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -22,6 +35,8 @@ pub(crate) struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) temperature: Option<f32>,
     pub(crate) stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) think: Option<bool>,
     /// JSON schema constraint for backends that support OpenAI-compatible
     /// `response_format`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,16 +98,131 @@ struct HttpResponse {
     body: String,
 }
 
+impl RequestProfile {
+    fn generic() -> Self {
+        Self::Generic
+    }
+
+    pub(crate) fn genie_ai_runtime() -> Self {
+        Self::GenieAiRuntime
+    }
+
+    fn prepare_body(
+        &self,
+        messages: &[Message],
+        max_tokens: Option<u32>,
+        stream: bool,
+        response_format: Option<ResponseFormat>,
+    ) -> Result<PreparedChatBody> {
+        let body = self.serialize_body(messages, max_tokens, stream, response_format.clone())?;
+        if !matches!(self, Self::GenieAiRuntime) || body.len() <= GENIE_RUNTIME_MAX_BODY_BYTES {
+            return Ok(PreparedChatBody {
+                body,
+                compacted: false,
+            });
+        }
+
+        let compacted_messages = self.compact_messages(messages);
+        let compacted_body =
+            self.serialize_body(&compacted_messages, max_tokens, stream, response_format)?;
+        Ok(PreparedChatBody {
+            body: compacted_body,
+            compacted: true,
+        })
+    }
+
+    fn serialize_body(
+        &self,
+        messages: &[Message],
+        max_tokens: Option<u32>,
+        stream: bool,
+        response_format: Option<ResponseFormat>,
+    ) -> Result<String> {
+        let request = ChatRequest {
+            model: self.model().into(),
+            messages: messages.to_vec(),
+            max_tokens,
+            temperature: Some(0.7),
+            stream,
+            think: self.think_override(),
+            response_format,
+        };
+        Ok(serde_json::to_string(&request)?)
+    }
+
+    fn model(self) -> &'static str {
+        match self {
+            Self::Generic => "default",
+            Self::GenieAiRuntime => "jetson-llm",
+        }
+    }
+
+    fn think_override(self) -> Option<bool> {
+        match self {
+            Self::Generic => None,
+            Self::GenieAiRuntime => Some(false),
+        }
+    }
+
+    fn compact_messages(&self, messages: &[Message]) -> Vec<Message> {
+        let mut compacted = Vec::new();
+        if matches!(self, Self::GenieAiRuntime) {
+            compacted.push(Message {
+                role: "system".into(),
+                content: GENIE_RUNTIME_COMPACT_SYSTEM.into(),
+            });
+        }
+
+        let recent = recent_non_system_messages(messages, GENIE_RUNTIME_RECENT_MESSAGES);
+        if recent.is_empty() {
+            compacted.extend(messages.iter().filter(|m| m.role != "system").cloned());
+        } else {
+            compacted.extend(recent);
+        }
+
+        if compacted.is_empty()
+            && let Some(last) = messages.last()
+        {
+            compacted.push(last.clone());
+        }
+
+        compacted
+    }
+}
+
+const GENIE_RUNTIME_MAX_BODY_BYTES: usize = 12 * 1024;
+const GENIE_RUNTIME_RECENT_MESSAGES: usize = 4;
+const GENIE_RUNTIME_COMPACT_SYSTEM: &str =
+    "You are GeniePod Home. Answer the user's latest request directly and concisely.";
+
 impl OpenAiCompatClient {
     pub fn new(backend_name: &'static str, host: &str, port: u16) -> Self {
+        Self::new_with_profile(backend_name, host, port, RequestProfile::generic())
+    }
+
+    pub(crate) fn new_with_profile(
+        backend_name: &'static str,
+        host: &str,
+        port: u16,
+        request_profile: RequestProfile,
+    ) -> Self {
         Self {
             backend_name,
             host: host.to_string(),
             port,
+            request_profile,
         }
     }
 
     pub fn from_url(backend_name: &'static str, url: &str) -> Self {
+        Self::from_url_with_profile(backend_name, url, RequestProfile::generic())
+    }
+
+    pub(crate) fn from_url_with_profile(
+        backend_name: &'static str,
+        url: &str,
+        request_profile: RequestProfile,
+    ) -> Self {
         let stripped = url.strip_prefix("http://").unwrap_or(url);
         let (host_port, _) = stripped.split_once('/').unwrap_or((stripped, ""));
         let (host, port_str) = host_port.split_once(':').unwrap_or((host_port, "8080"));
@@ -101,6 +231,7 @@ impl OpenAiCompatClient {
             backend_name,
             host: host.to_string(),
             port,
+            request_profile,
         }
     }
 
@@ -148,17 +279,27 @@ impl OpenAiCompatClient {
         max_tokens: Option<u32>,
         response_format: Option<ResponseFormat>,
     ) -> Result<String> {
-        let request = ChatRequest {
-            model: "default".into(),
-            messages: messages.to_vec(),
-            max_tokens,
-            temperature: Some(0.7),
-            stream: false,
-            response_format,
-        };
+        let prepared =
+            self.request_profile
+                .prepare_body(messages, max_tokens, false, response_format)?;
+        if prepared.compacted {
+            tracing::debug!(
+                backend = self.backend_name,
+                request_bytes = prepared.body.len(),
+                "compacted OpenAI-compatible chat request"
+            );
+        }
 
-        let body = serde_json::to_string(&request)?;
-        let response = self.http_post("/v1/chat/completions", &body).await?;
+        let response = self
+            .http_post("/v1/chat/completions", &prepared.body)
+            .await?;
+        if response.status == 0 && response.body.trim().is_empty() {
+            anyhow::bail!(
+                "{} closed connection before HTTP status (request_bytes={})",
+                self.backend_name,
+                prepared.body.len()
+            );
+        }
         if response.status != 200 {
             anyhow::bail!(
                 "{} {}: {}",
@@ -194,16 +335,17 @@ impl OpenAiCompatClient {
         max_tokens: Option<u32>,
         on_token: &mut (dyn for<'a> FnMut(&'a str) + Send),
     ) -> Result<String> {
-        let request = ChatRequest {
-            model: "default".into(),
-            messages: messages.to_vec(),
-            max_tokens,
-            temperature: Some(0.7),
-            stream: true,
-            response_format: None,
-        };
+        let prepared = self
+            .request_profile
+            .prepare_body(messages, max_tokens, true, None)?;
+        if prepared.compacted {
+            tracing::debug!(
+                backend = self.backend_name,
+                request_bytes = prepared.body.len(),
+                "compacted OpenAI-compatible streaming chat request"
+            );
+        }
 
-        let body = serde_json::to_string(&request)?;
         let addr = format!("{}:{}", self.host, self.port);
         let stream = TcpStream::connect(&addr).await?;
         let (reader, mut writer) = stream.into_split();
@@ -211,15 +353,15 @@ impl OpenAiCompatClient {
         let http_req = format!(
             "POST /v1/chat/completions HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccept: text/event-stream\r\n\r\n{}",
             addr,
-            body.len(),
-            body,
+            prepared.body.len(),
+            prepared.body,
         );
 
         writer.write_all(http_req.as_bytes()).await?;
 
         let mut lines = BufReader::new(reader).lines();
         let mut full_response = String::new();
-        let mut status = 200;
+        let mut status = 0;
         let mut headers_done = false;
 
         while let Some(line) = lines.next_line().await? {
@@ -267,6 +409,13 @@ impl OpenAiCompatClient {
                     }
                 }
             }
+        }
+
+        if !headers_done {
+            anyhow::bail!(
+                "{} closed streaming connection before HTTP status",
+                self.backend_name
+            );
         }
 
         Ok(full_response)
@@ -377,6 +526,22 @@ fn parse_status_line(line: &str) -> u16 {
         .unwrap_or(0)
 }
 
+fn recent_non_system_messages(messages: &[Message], limit: usize) -> Vec<Message> {
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let mut recent = messages
+        .iter()
+        .rev()
+        .filter(|m| m.role != "system")
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    recent.reverse();
+    recent
+}
+
 fn should_retry_without_system_role(messages: &[Message], err: &str) -> bool {
     messages.iter().any(|m| m.role == "system") && system_role_not_supported(err)
 }
@@ -475,11 +640,101 @@ mod tests {
             max_tokens: Some(256),
             temperature: Some(0.7),
             stream: false,
+            think: None,
             response_format: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("nemotron-4b"));
         assert!(json.contains("turn on the lights"));
+    }
+
+    #[test]
+    fn generic_request_profile_keeps_full_default_body() {
+        let profile = RequestProfile::generic();
+        let messages = vec![
+            Message {
+                role: "system".into(),
+                content: "keep this full instruction".repeat(128),
+            },
+            Message {
+                role: "user".into(),
+                content: "turn on the lights".into(),
+            },
+        ];
+
+        let prepared = profile
+            .prepare_body(&messages, Some(64), false, None)
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_str(&prepared.body).unwrap();
+
+        assert!(!prepared.compacted);
+        assert_eq!(json["model"], "default");
+        assert!(
+            json["messages"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("keep this full instruction")
+        );
+    }
+
+    #[test]
+    fn genie_runtime_profile_compacts_large_core_prompt() {
+        let profile = RequestProfile::genie_ai_runtime();
+        let messages = vec![
+            Message {
+                role: "system".into(),
+                content: "large tool manifest ".repeat(1_000),
+            },
+            Message {
+                role: "assistant".into(),
+                content: "older assistant turn".into(),
+            },
+            Message {
+                role: "user".into(),
+                content: "Say hello from the GeniePod web UI.".into(),
+            },
+        ];
+
+        let prepared = profile
+            .prepare_body(&messages, Some(64), false, None)
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_str(&prepared.body).unwrap();
+        let serialized_messages = json["messages"].to_string();
+
+        assert!(prepared.compacted);
+        assert_eq!(json["model"], "jetson-llm");
+        assert_eq!(json["think"], false);
+        assert!(serialized_messages.contains("GeniePod Home"));
+        assert!(serialized_messages.contains("Say hello from the GeniePod web UI."));
+        assert!(!serialized_messages.contains("large tool manifest"));
+        assert!(prepared.body.len() < 12 * 1024);
+    }
+
+    #[test]
+    fn recent_non_system_messages_preserve_order() {
+        let messages = vec![
+            Message {
+                role: "system".into(),
+                content: "system".into(),
+            },
+            Message {
+                role: "user".into(),
+                content: "one".into(),
+            },
+            Message {
+                role: "assistant".into(),
+                content: "two".into(),
+            },
+            Message {
+                role: "user".into(),
+                content: "three".into(),
+            },
+        ];
+
+        let recent = recent_non_system_messages(&messages, 2);
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].content, "two");
+        assert_eq!(recent[1].content, "three");
     }
 
     #[test]
