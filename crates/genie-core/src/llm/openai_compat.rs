@@ -165,33 +165,14 @@ impl RequestProfile {
     }
 
     fn compact_messages(&self, messages: &[Message]) -> Vec<Message> {
-        let mut compacted = Vec::new();
-        if matches!(self, Self::GenieAiRuntime) {
-            compacted.push(Message {
-                role: "system".into(),
-                content: GENIE_RUNTIME_COMPACT_SYSTEM.into(),
-            });
+        match self {
+            Self::Generic => messages.to_vec(),
+            Self::GenieAiRuntime => compact_genie_runtime_messages(messages),
         }
-
-        let recent = recent_non_system_messages(messages, GENIE_RUNTIME_RECENT_MESSAGES);
-        if recent.is_empty() {
-            compacted.extend(messages.iter().filter(|m| m.role != "system").cloned());
-        } else {
-            compacted.extend(recent);
-        }
-
-        if compacted.is_empty()
-            && let Some(last) = messages.last()
-        {
-            compacted.push(last.clone());
-        }
-
-        compacted
     }
 }
 
 const GENIE_RUNTIME_MAX_BODY_BYTES: usize = 12 * 1024;
-const GENIE_RUNTIME_RECENT_MESSAGES: usize = 4;
 const GENIE_RUNTIME_COMPACT_SYSTEM: &str =
     "You are GeniePod Home. Answer the user's latest request directly and concisely.";
 
@@ -526,20 +507,20 @@ fn parse_status_line(line: &str) -> u16 {
         .unwrap_or(0)
 }
 
-fn recent_non_system_messages(messages: &[Message], limit: usize) -> Vec<Message> {
-    if limit == 0 {
-        return Vec::new();
-    }
-
-    let mut recent = messages
+fn compact_genie_runtime_messages(messages: &[Message]) -> Vec<Message> {
+    let Some(message) = messages
         .iter()
         .rev()
-        .filter(|m| m.role != "system")
-        .take(limit)
-        .cloned()
-        .collect::<Vec<_>>();
-    recent.reverse();
-    recent
+        .find(|m| m.role == "user")
+        .or_else(|| messages.iter().rev().find(|m| m.role != "system"))
+    else {
+        return Vec::new();
+    };
+
+    vec![Message {
+        role: "user".into(),
+        content: format!("{}\n\n{}", GENIE_RUNTIME_COMPACT_SYSTEM, message.content),
+    }]
 }
 
 fn should_retry_without_system_role(messages: &[Message], err: &str) -> bool {
@@ -687,7 +668,7 @@ mod tests {
             },
             Message {
                 role: "assistant".into(),
-                content: "older assistant turn".into(),
+                content: "older assistant turn ".repeat(200),
             },
             Message {
                 role: "user".into(),
@@ -704,37 +685,32 @@ mod tests {
         assert!(prepared.compacted);
         assert_eq!(json["model"], "jetson-llm");
         assert_eq!(json["think"], false);
+        assert_eq!(json["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(json["messages"][0]["role"], "user");
         assert!(serialized_messages.contains("GeniePod Home"));
         assert!(serialized_messages.contains("Say hello from the GeniePod web UI."));
         assert!(!serialized_messages.contains("large tool manifest"));
-        assert!(prepared.body.len() < 12 * 1024);
+        assert!(!serialized_messages.contains("older assistant turn"));
+        assert!(prepared.body.len() < 1_000);
     }
 
     #[test]
-    fn recent_non_system_messages_preserve_order() {
+    fn genie_runtime_compaction_falls_back_to_latest_non_system_message() {
         let messages = vec![
             Message {
                 role: "system".into(),
                 content: "system".into(),
             },
             Message {
-                role: "user".into(),
-                content: "one".into(),
-            },
-            Message {
                 role: "assistant".into(),
-                content: "two".into(),
-            },
-            Message {
-                role: "user".into(),
-                content: "three".into(),
+                content: "assistant fallback".into(),
             },
         ];
 
-        let recent = recent_non_system_messages(&messages, 2);
-        assert_eq!(recent.len(), 2);
-        assert_eq!(recent[0].content, "two");
-        assert_eq!(recent[1].content, "three");
+        let compacted = compact_genie_runtime_messages(&messages);
+        assert_eq!(compacted.len(), 1);
+        assert_eq!(compacted[0].role, "user");
+        assert!(compacted[0].content.contains("assistant fallback"));
     }
 
     #[test]
