@@ -118,12 +118,12 @@ configured_llm_unit="$(normalize_unit "$raw_llm_unit")"
 configured_warmup_unit="$(warmup_unit_for "$configured_llm_unit")"
 
 UNITS=(
-    homeassistant.service
     genie-audio.service
-    genie-whisper.service
-    genie-whisper-warmup.service
     "$configured_llm_unit"
     "$configured_warmup_unit"
+    homeassistant.service
+    genie-whisper.service
+    genie-whisper-warmup.service
     genie-core.service
     genie-governor.service
     genie-health.service

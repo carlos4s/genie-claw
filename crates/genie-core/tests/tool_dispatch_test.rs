@@ -264,6 +264,24 @@ fn start_all_uses_configured_llm_backend() {
         contents.contains("is_warmup_unit") && contents.contains("start --no-block"),
         "start_all should queue warmup units without blocking the lifecycle script"
     );
+    let units = contents
+        .split("UNITS=(")
+        .nth(1)
+        .and_then(|s| s.split(")").next())
+        .expect("start_all should declare ordered units");
+    let llm_pos = units
+        .find("\"$configured_llm_unit\"")
+        .expect("start_all should include the configured LLM unit");
+    let homeassistant_pos = units
+        .find("homeassistant.service")
+        .expect("start_all should include Home Assistant");
+    let whisper_pos = units
+        .find("genie-whisper.service")
+        .expect("start_all should include Whisper");
+    assert!(
+        llm_pos < homeassistant_pos && llm_pos < whisper_pos,
+        "start_all should start the configured LLM before memory-heavy services"
+    );
 }
 
 /// Verify genie-ai-runtime service preserves warm GGUF pages across restarts.
@@ -285,8 +303,14 @@ fn genie_ai_runtime_service_preserves_model_page_cache() {
         "genie-ai-runtime.service should use INT8 KV to fit enough context under memory pressure"
     );
     assert!(
-        contents.contains("GENIEPOD_AI_RUNTIME_CONTEXT=2048"),
-        "genie-ai-runtime.service should request the GenieClaw web-chat context size"
+        contents.contains("GENIEPOD_AI_RUNTIME_CONTEXT=8192"),
+        "genie-ai-runtime.service should request the Jetson-tested 8k context size"
+    );
+    assert!(
+        contents.contains(
+            "Before=genie-whisper.service genie-whisper-warmup.service homeassistant.service genie-core.service"
+        ),
+        "genie-ai-runtime.service should reserve KV cache before memory-heavy services"
     );
 }
 
