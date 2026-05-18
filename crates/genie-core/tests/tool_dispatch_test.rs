@@ -314,6 +314,30 @@ fn genie_ai_runtime_service_preserves_model_page_cache() {
     );
 }
 
+/// Verify the chat UI keeps an animated in-flight state before streamed tokens arrive.
+#[test]
+fn chat_ui_uses_animated_writing_indicator() {
+    let path = workspace_root().join("crates/genie-core/src/chat_ui.html");
+    let contents = std::fs::read_to_string(&path).unwrap();
+
+    assert!(
+        contents.contains("Agent writing"),
+        "chat UI should show the in-flight agent state"
+    );
+    assert!(
+        contents.contains("writing-dots") && contents.contains("@keyframes writing-pulse"),
+        "chat UI should animate the in-flight state instead of rendering static dots"
+    );
+    assert!(
+        contents.contains("aria-busy") && contents.contains("aria-live"),
+        "chat UI should expose the in-flight state to assistive technology"
+    );
+    assert!(
+        !contents.contains(".msg.bot.streaming:empty::before"),
+        "chat UI should not rely on an empty pseudo-element placeholder"
+    );
+}
+
 /// Verify the model cache helper can inspect GGUF page-cache residency.
 #[test]
 fn model_cache_status_helper_reports_residency() {

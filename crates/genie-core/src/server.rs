@@ -13,6 +13,24 @@ use crate::reasoning::InteractionKind;
 use crate::tools::ToolDispatcher;
 use crate::tools::{RequestOrigin, ToolExecutionContext};
 
+const HTML_CONTENT_TYPE: &str = "text/html; charset=utf-8";
+
+struct StaticHtml {
+    body: &'static str,
+}
+
+impl StaticHtml {
+    const fn new(body: &'static str) -> Self {
+        Self { body }
+    }
+
+    fn response(&self) -> (u16, &'static str, String) {
+        (200, HTML_CONTENT_TYPE, self.body.to_owned())
+    }
+}
+
+const CHAT_UI: StaticHtml = StaticHtml::new(include_str!("chat_ui.html"));
+
 /// HTTP chat server for genie-core.
 ///
 /// Endpoints:
@@ -195,11 +213,7 @@ async fn handle_request(stream: tokio::net::TcpStream, ctx: &ChatServer) -> Resu
     }
 
     let (status, content_type, response_body) = match (method, path) {
-        ("GET", "/" | "/index.html") => (
-            200,
-            "text/html; charset=utf-8",
-            include_str!("chat_ui.html").into(),
-        ),
+        ("GET", "/" | "/index.html") => CHAT_UI.response(),
         ("POST", "/api/chat") => {
             handle_chat(
                 body.as_deref(),
