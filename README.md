@@ -4,14 +4,14 @@
 [![Jetson cross-compile](https://github.com/GeniePod/genie-claw/actions/workflows/cross.yml/badge.svg)](https://github.com/GeniePod/genie-claw/actions/workflows/cross.yml)
 [![Audit](https://github.com/GeniePod/genie-claw/actions/workflows/audit.yml/badge.svg)](https://github.com/GeniePod/genie-claw/actions/workflows/audit.yml)
 
-**Limited context, powerful AI harness for agentic smart homes. GenieClaw is
-portable across SBCs and native to GeniePod Home.**
+**Limited-context local AI for agentic smart homes: a compact, powerful agent
+harness that is portable across SBCs and native to GeniePod Home.**
 
 - Limited context by design — 4096-token Jetson baseline before larger adaptive contexts
-- Strong agent harness — prompt, tool, memory, and home-runtime contracts for constrained models
-- Agentic smart home core — memory, tools, confirmations, audit, and Home Assistant today
-- Portable across SBCs — headless and local-runtime profiles for Jetson, Raspberry Pi, laptops, and Macs
-- Native GeniePod Home path — voice, `genie-ai-runtime`, and private household data on Jetson
+- Powerful agent harness — prompt, tool, memory, safety, and home-runtime contracts for constrained models
+- Agentic smart home core — smart-home intent, memory, tools, confirmations, audit, and Home Assistant today
+- Portable runtime shape — headless and local-runtime profiles for Jetson, Raspberry Pi, laptops, and Macs
+- Native GeniePod Home path — Jetson-first agent layer integrated with `genie-ai-runtime`, `genie-voice-runtime`, and private household data
 
 ![GenieClaw](doc/assets/genie-claw.png)
 
@@ -24,13 +24,19 @@ portable across SBCs and native to GeniePod Home.**
 > Jetson bring-up, not a one-line install — see
 > [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
-## How it works
+## How It Works
 
-The flagship GeniePod Home path keeps the complete voice cycle on the
-appliance. Audio is captured on the Jetson, routed through five on-device
-stages, and answered in audio. Portable and headless profiles use the same
-agent contracts, but can swap runtime/provider boundaries for development and
-CI.
+The flagship GeniePod Home path keeps the user-facing voice cycle on the
+appliance, but GenieClaw's responsibility is the agent layer. Audio capture,
+wake/VAD, STT, and TTS are a transitional local adapter today and move behind
+[`genie-voice-runtime`](https://github.com/GeniePod/genie-voice-runtime) as the
+stack matures. LLM inference stays behind
+[`genie-ai-runtime`](https://github.com/GeniePod/genie-ai-runtime), and physical
+control moves behind the planned `genie-home-runtime`.
+
+Portable and headless profiles use the same limited-context agent contracts,
+but can swap runtime/provider boundaries for development, CI, and non-Jetson
+devices.
 
 ```
    you speak                      you hear
@@ -38,7 +44,7 @@ CI.
        ▼                              │
    ┌────────┐   ┌────────┐   ┌──────────────┐   ┌───────┐
    │ Wake + │ → │ STT    │ → │ GenieClaw    │ → │ TTS   │
-   │ VAD    │   │ Whisper│   │ agent (Rust) │   │ Piper │
+   │ VAD    │   │ Whisper│   │ agent layer  │   │ Piper │
    └────────┘   └────────┘   └──────┬───────┘   └───────┘
                                     │
                        memory ◄─────┼─────► local LLM
@@ -53,10 +59,12 @@ CI.
 ### Per-stage walkthrough
 
 1. **Wake + VAD** — wake-word detection plus voice-activity tail. The
-   rest of the pipeline stays cold until both fire.
+   in-repo adapter is transitional; long-term ownership belongs in
+   `genie-voice-runtime`.
 
 2. **STT (Whisper)** — local transcription on the Jetson. Transcripts
-   live in process memory only; nothing is written to disk by default.
+   live in process memory only; nothing is written to disk by default. This is
+   also part of the voice-runtime boundary.
 
 3. **Agent layer (GenieClaw, Rust)** — assembles the system prompt from
    frozen identity blocks, hydrated household memory, and the tool
@@ -72,7 +80,8 @@ CI.
    per-deployment via `[services.llm].backend = "llama_cpp"`.
 
 5. **TTS (Piper)** — streamed sentence-by-sentence so the first audible
-   reply begins before the LLM finishes generating.
+   reply begins before the LLM finishes generating. Long term this sits behind
+   the external voice-runtime protocol.
 
 **Side outputs:** SQLite-backed household memory (scope, sensitivity,
 spoken-policy filtering, durable promotion under `memory/MEMORY.md`),
@@ -120,11 +129,11 @@ the eventual device-control runtime (`genie-home-runtime`, planned). See
 - [M8 — Satellite Devices: Contactless Sleep Tracker + Multi-Room Satellite Speaker](https://github.com/GeniePod/genie-claw/milestone/8) — *planned*
 - [M9 — Product Line: GeniePod Home / Pro / Max + Tiered Stack Integration](https://github.com/GeniePod/genie-claw/milestone/9) — *planned*
 
-### Milestone 1 — stable voice loop on `genie-ai-runtime` v1
+### Milestone 1 — stable voice-session loop on `genie-ai-runtime` v1
 
 The first milestone is intentionally narrow: stabilize one end-to-end path
-(voice in, voice out) on the current first release of `genie-ai-runtime`,
-and nothing else. Breadth comes after M1.
+(voice in, agent turn, voice out) on the current first release of
+`genie-ai-runtime`, and nothing else. Breadth comes after M1.
 
 In scope:
 
@@ -132,7 +141,7 @@ In scope:
 - **`genie-ai-runtime` v1 integration reliability** — every chat/voice cycle reaches the runtime, every response parses cleanly, every failure mode surfaces in `/api/health` and `genie-ctl status`
 - **memory recall** — household context written to SQLite is retrievable and referenced in subsequent turns; recall failures are observable, not silent
 - **tool dispatch** — the tool-call gate routes correctly, applies per-origin ACLs, rate-limits, and audits; every dispatched tool either completes or fails loudly
-- **voice pipeline strength** — wake → VAD → STT → LLM → TTS round-trip under the alpha latency budget on Jetson Orin Nano Super 8 GB; no silent stalls, no torn audio, no stuck push-to-talk loops
+- **voice-session integration strength** — wake → VAD → STT → agent → TTS round-trip under the alpha latency budget on Jetson Orin Nano Super 8 GB; no silent stalls, no torn audio, no stuck push-to-talk loops
 
 Out of scope for M1:
 
@@ -196,8 +205,7 @@ If you want a short definition:
 
 ## Ecosystem Position
 
-The intended Genie stack has five product layers. Layer three has two runtime
-components:
+The intended Genie stack is split into explicit product and runtime layers:
 
 - custom Jetson hardware
 - `genie-os`: custom L4T image, drivers, OTA, and service supervision
@@ -264,8 +272,9 @@ agent operation:
 
 Home Assistant is currently a provider behind a boundary. Long term,
 `genie-home-runtime` should own the device graph, automations, and final
-physical actuation checks. GenieClaw owns the voice behavior, memory, session
-logic, response style, channels, and skill routing.
+physical actuation checks. GenieClaw owns spoken response behavior, memory,
+session policy, response style, channels, and skill routing. It does not own
+the long-term wake/VAD/STT/TTS/audio runtime.
 
 ## How It Fits Together
 
@@ -276,7 +285,7 @@ At a high level:
    `[services.llm].backend = "llama_cpp"` in `geniepod.toml`.
    Backend identity flows through `LlmClient::backend_name()` into
    logs, `/api/health`, and `genie-ctl status` for operator visibility.
-2. `genie-core` handles prompts, tool calls, memory, chat, and voice orchestration.
+2. `genie-core` handles prompts, tool calls, memory, chat, and channel/session adapters.
 3. Today, Home Assistant can provide device state and service execution. Longer term,
    `genie-home-runtime` should provide that boundary and the final actuation safety layer.
 4. GeniePod companion services handle health, governance, and dashboards.
@@ -454,12 +463,12 @@ full rollout plan; flipping the default ships in Phase 2 alongside
 
 The current work is centered on:
 
-- hardening the Jetson voice pipeline
+- hardening the Jetson voice-session integration and external voice-runtime boundary
 - improving the household memory system
 - tightening the Home Assistant boundary
 - building a tightly controlled native skill model
 - pushing the appliance-style deployment model further
-- reducing false activations and ambient-chatter waste in shared-room voice mode
+- moving wake/VAD/STT/TTS ownership into `genie-voice-runtime`
 
 ## Memory Safety Notes
 
@@ -474,7 +483,7 @@ The current memory system is built for a shared-room appliance:
 
 ## Contributing
 
-Quality, engineering, and bug fixes are always welcome. Every PR must include a **Real Behavior Proof** section in the description — a brief statement of what you ran, where you ran it, and what happened (Jetson hardware preferred). CI enforces the structure; reviewers read the content. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+Quality, engineering, and bug fixes are always welcome. Every PR must include a **Real Behavior Proof** section in the description — a brief statement of what you ran, where you ran it, and what happened. CI/local proof is acceptable for docs, harness, provider, and non-hardware work. Hardware-facing changes should include Jetson or device proof, or clearly state the validation gap for maintainers. CI enforces the structure; reviewers read the content. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
 ## Security
 
