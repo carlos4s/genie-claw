@@ -960,6 +960,20 @@ impl Config {
         format!("{host}:{}", self.core.port)
     }
 
+    /// TCP `host:port` for `genie-api` to bind, derived from `[services.api].url`.
+    ///
+    /// Keeps the listen socket aligned with health probes and `genie-ctl` that
+    /// already read the same configured URL (issue #140).
+    pub fn api_http_addr(&self) -> anyhow::Result<String> {
+        match parse_service_probe_target(&self.services.api.url) {
+            ServiceProbeTarget::Http { addr, .. } => Ok(addr),
+            ServiceProbeTarget::UnsupportedScheme { scheme } => anyhow::bail!(
+                "genie-api cannot bind from [services.api].url: unsupported scheme \
+                 \"{scheme}\" (use http://)"
+            ),
+        }
+    }
+
     /// Resolve the configured Home Assistant endpoint, if this deployment uses one.
     pub fn homeassistant_service(&self) -> Option<&ServiceEndpoint> {
         self.services.homeassistant.as_ref()
@@ -1542,6 +1556,30 @@ systemd_unit = "genie-ai-runtime.service"
         config.core.port = 3000;
         config.core.bind_host = "0.0.0.0".into();
         assert_eq!(config.core_http_addr(), "127.0.0.1:3000");
+    }
+
+    #[test]
+    fn api_http_addr_defaults_to_documented_port() {
+        let config = test_config();
+        assert_eq!(config.api_http_addr().unwrap(), "127.0.0.1:3080");
+    }
+
+    #[test]
+    fn api_http_addr_follows_services_api_url() {
+        let mut config = test_config();
+        config.services.api.url = "http://127.0.0.1:4080/api/status".into();
+        assert_eq!(config.api_http_addr().unwrap(), "127.0.0.1:4080");
+    }
+
+    #[test]
+    fn api_http_addr_rejects_https_url() {
+        let mut config = test_config();
+        config.services.api.url = "https://api.example/api/status".into();
+        let err = config.api_http_addr().unwrap_err();
+        assert!(
+            err.to_string().contains("unsupported scheme"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
