@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Governor LLM model swap reports failures** (#148): `ServiceCtl::swap_llm_model`
+  now checks `status.success()` on both `systemctl daemon-reload` and
+  `systemctl restart <unit>`, logs the captured `stderr`, and `bail!`s on a
+  non-zero exit — matching `start` / `docker_start` / `enable_zram`. Previously
+  `.output().await?` only surfaced spawn failures, so a denied restart (polkit
+  policy, masked unit, rejected override) silently no-op'd while reporting
+  success, leaving the heavier model resident during a memory-relief transition
+  and risking OOM on the 8 GB Orin. The three `governor.rs` call sites now log
+  the swap result (`tracing::error!`) instead of discarding it with `let _ =`.
 - **Real streaming TTS** (#26): the voice loop now detects sentence
   boundaries inside the LLM streaming callback and forwards completed
   sentences to a concurrent TTS task immediately, instead of waiting
