@@ -2314,6 +2314,7 @@ mod tests {
         let memory_path = tmp.join(format!("{uid}-memory.db"));
         let conv_path = tmp.join(format!("{uid}-conv.db"));
 
+        let system_prompt = "You are a helpful assistant.";
         let server = super::ChatServer::new(
             LlmClient::from_backend(slow_backend),
             ToolDispatcher::new(None),
@@ -2322,7 +2323,8 @@ mod tests {
             )),
             Memory::open(&memory_path).unwrap(),
             ConversationStore::open(&conv_path).unwrap(),
-            "You are a helpful assistant.".into(),
+            system_prompt.into(),
+            crate::prompt_sha::sha256_hex(system_prompt),
             10,
             ModelFamily::Phi,
             "".into(),

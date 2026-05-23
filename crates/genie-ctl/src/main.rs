@@ -79,6 +79,7 @@ fn api_probe_addr(config: &Config) -> std::result::Result<String, String> {
         ServiceProbeTarget::UnsupportedScheme { scheme } => Err(scheme),
     }
 }
+
 const SKILL_RESTART_HINT: &str =
     "Restart genie-core to load skill changes, or wait until the next startup.";
 
