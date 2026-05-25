@@ -75,7 +75,7 @@ world for the home.
 This repo is the Rust agent runtime for a very specific product shape:
 
 - a Jetson-first home AI appliance
-- a full local voice pipeline: wake word, STT, LLM orchestration, tools, and TTS
+- a voice-session adapter connecting to `genie-voice-runtime` (which owns wake word, STT, and TTS)
 - a local household memory system
 - safe handoff to a home-control runtime
 - transitional Home Assistant support while `genie-home-runtime` is not yet split out
@@ -157,7 +157,7 @@ agent operation:
 
 Home Assistant is currently a provider behind a boundary. Long term,
 `genie-home-runtime` should own the device graph, automations, and final
-physical actuation checks. GenieClaw owns the voice behavior, memory, session
+physical actuation checks. GenieClaw owns the agent layer: memory, session
 logic, response style, channels, and skill routing.
 
 ## How It Fits Together
@@ -169,14 +169,13 @@ At a high level:
    `[services.llm].backend = "llama_cpp"` in `geniepod.toml`.
    Backend identity flows through `LlmClient::backend_name()` into
    logs, `/api/health`, and `genie-ctl status` for operator visibility.
-2. `genie-core` handles prompts, tool calls, memory, chat, and voice orchestration.
+2. `genie-core` handles prompts, tool calls, memory, and chat; voice sessions connect through `genie-voice-runtime`.
 3. Today, Home Assistant can provide device state and service execution. Longer term,
    `genie-home-runtime` should provide that boundary and the final actuation safety layer.
 4. GeniePod companion services handle health, governance, and dashboards.
 
 That means the user talks to GeniePod, not directly to Home Assistant internals.
 
-## Why Minimal-First On Jetson
 ## Current Focus
 
 - keep the agent reliable inside a 4096-token Jetson context
