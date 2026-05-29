@@ -20,6 +20,8 @@ The fixture format is intentionally plain:
 - `home_tool_predictions.jsonl`: one model response per line with matching
   `id` and `response`.
 
-The first suite covers exact structured home/device calls, memory recall,
-timers, no-tool responses, and OpenAI-compatible `tool_calls` output. Expand it
-with high-signal household cases before changing prompts or routing logic.
+The first suite covers every static built-in tool name from `ToolDispatcher`,
+including home/device calls, memory read/write/diagnostic tools, timers,
+weather/search, calculations, media, no-tool responses, multi-tool responses,
+and OpenAI-compatible `tool_calls` output. Dynamic native skill tools are loaded
+at runtime, so each installed skill should add its own BFCL fixture.

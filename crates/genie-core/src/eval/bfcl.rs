@@ -394,6 +394,7 @@ fn ratio(count: usize, total: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::path::Path;
 
     fn case(expected_tool_calls: Vec<ExpectedToolCall>) -> BfclCase {
@@ -528,9 +529,48 @@ mod tests {
 
         let report = score_cases(&cases, &predictions);
 
-        assert_eq!(report.total_cases, 20);
-        assert_eq!(report.strict_matches, 20);
+        assert_eq!(report.total_cases, 21);
+        assert_eq!(report.strict_matches, 21);
         assert_eq!(report.failure_count, 0);
         assert!((report.strict_accuracy - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn jsonl_fixture_covers_all_static_builtin_tools() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let cases = load_cases_jsonl(root.join("tests/bfcl/home_tool_cases.jsonl")).unwrap();
+        let covered_tools = cases
+            .iter()
+            .flat_map(|case| {
+                case.expected_tool_calls
+                    .iter()
+                    .map(|tool_call| tool_call.name.as_str())
+            })
+            .collect::<BTreeSet<_>>();
+
+        let static_builtin_tools = [
+            "home_control",
+            "home_status",
+            "home_undo",
+            "action_history",
+            "set_timer",
+            "get_time",
+            "get_weather",
+            "web_search",
+            "system_info",
+            "calculate",
+            "play_media",
+            "memory_recall",
+            "memory_status",
+            "memory_forget",
+            "memory_store",
+        ];
+
+        for tool in static_builtin_tools {
+            assert!(
+                covered_tools.contains(tool),
+                "missing BFCL fixture for static built-in tool: {tool}"
+            );
+        }
     }
 }
