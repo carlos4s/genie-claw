@@ -528,8 +528,8 @@ mod tests {
 
         let report = score_cases(&cases, &predictions);
 
-        assert_eq!(report.total_cases, 6);
-        assert_eq!(report.strict_matches, 6);
+        assert_eq!(report.total_cases, 20);
+        assert_eq!(report.strict_matches, 20);
         assert_eq!(report.failure_count, 0);
         assert!((report.strict_accuracy - 1.0).abs() < f64::EPSILON);
     }
