@@ -599,14 +599,21 @@ fn canonicalize_entity_value(value: &Value, graph: &HomeGraph) -> Value {
 /// Canonicalize an action verb to a small set of stable forms, so the grounded
 /// metric credits synonyms the agent would execute identically. Unknown verbs
 /// pass through normalized (lowercase, separators -> `_`) so exact matches still
-/// hold. Mirrors the canonicalization the runtime tool dispatch should apply.
+/// hold. Mirrors the canonicalization the runtime tool dispatch applies in
+/// `tools::dispatch::canon_home_control_action`.
+///
+/// `activate` is intentionally *not* folded into `turn_on`: the runtime keeps it
+/// as a distinct `home_control` action for scenes/scripts (it appears separately
+/// in the action enum and `canon_home_control_action` leaves it as-is), so
+/// crediting `turn_on` for an expected `activate` would score a wrong actuation
+/// as correct and inflate the grounded metric.
 fn canon_action(text: &str) -> String {
     let normalized = text.trim().to_lowercase().replace([' ', '-'], "_");
     match normalized.as_str() {
         "deactivate" | "disable" | "switch_off" | "power_off" | "shut_off" | "turn_off" => {
             "turn_off".to_string()
         }
-        "activate" | "enable" | "switch_on" | "power_on" | "turn_on" => "turn_on".to_string(),
+        "enable" | "switch_on" | "power_on" | "turn_on" => "turn_on".to_string(),
         _ => normalized,
     }
 }
@@ -1000,6 +1007,38 @@ mod tests {
         let report = score_cases(&[case], &[prediction]);
         assert_eq!(report.argument_matches, 0);
         assert_eq!(report.grounded_strict_matches, 1);
+    }
+
+    #[test]
+    fn grounded_metric_keeps_activate_distinct_from_turn_on() {
+        // `activate` is a distinct runtime action for scenes/scripts: the
+        // dispatcher's canon_home_control_action leaves it as-is (covered by a
+        // "distinct action, must not remap" regression test), and `home_control`
+        // lists `activate` separately from `turn_on` in its action enum. The
+        // grounded metric must mirror runtime dispatch, so predicting `turn_on`
+        // for an expected `activate` is a *wrong actuation* (turn_on is a no-op
+        // for a scene) and must NOT be credited as a grounded match.
+        let case = case(vec![expected(
+            "home_control",
+            serde_json::json!({"action": "activate", "entity": "kitchen lights"}),
+        )]);
+        let prediction = BfclPrediction {
+            id: case.id.clone(),
+            response:
+                r#"{"tool":"home_control","arguments":{"action":"turn_on","entity":"kitchen lights"}}"#
+                    .to_string(),
+        };
+
+        let score = score_response(&case, &prediction.response);
+        assert!(
+            !score.argument_match,
+            "raw action strings differ, exact match must fail"
+        );
+        assert!(
+            !score.grounded_argument_match,
+            "predicting `turn_on` for an expected `activate` is a wrong actuation \
+             and must not be credited by the grounded metric"
+        );
     }
 
     #[test]
