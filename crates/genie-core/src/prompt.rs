@@ -312,6 +312,23 @@ fn format_memories(memory: &Memory) -> String {
 mod tests {
     use super::*;
 
+    /// A unique on-disk SQLite path per call. A fixed shared name in the
+    /// world-writable temp dir collides across repeated runs and across users:
+    /// leftover `-wal`/`-shm` sidecars owned by another user (or a crashed
+    /// earlier run) make the reopened database read-only ("attempt to write a
+    /// readonly database"). Mirror the per-process + counter convention already
+    /// used elsewhere in this crate (see the `memory::recall` tests).
+    fn unique_test_db(tag: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CTR: AtomicU32 = AtomicU32::new(0);
+        let id = CTR.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "prompt-test-{tag}-{}-{}.db",
+            std::process::id(),
+            id
+        ))
+    }
+
     #[test]
     fn detect_nemotron() {
         assert!(matches!(
@@ -369,7 +386,7 @@ mod tests {
             description: "Get current time".into(),
             parameters: serde_json::json!({"type": "object", "properties": {}}),
         }];
-        let mem_path = std::env::temp_dir().join("prompt-test-qwen3-4b.db");
+        let mem_path = unique_test_db("qwen3-4b");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
 
@@ -403,7 +420,7 @@ mod tests {
             description: "Get current time".into(),
             parameters: serde_json::json!({"type": "object", "properties": {}}),
         }];
-        let mem_path = std::env::temp_dir().join("prompt-test.db");
+        let mem_path = unique_test_db("default");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
 
@@ -420,7 +437,7 @@ mod tests {
             description: "Get system status".into(),
             parameters: serde_json::json!({"type": "object", "properties": {}}),
         }];
-        let mem_path = std::env::temp_dir().join("prompt-test-system-info.db");
+        let mem_path = unique_test_db("system-info");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
 
@@ -444,7 +461,7 @@ mod tests {
                 parameters: serde_json::json!({"type": "object", "properties": {"query": {"type": "string"}}}),
             },
         ];
-        let mem_path = std::env::temp_dir().join("prompt-test-small.db");
+        let mem_path = unique_test_db("small");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
 
@@ -466,7 +483,7 @@ mod tests {
             description: "Get current time".into(),
             parameters: serde_json::json!({"type": "object", "properties": {}}),
         }];
-        let mem_path = std::env::temp_dir().join("prompt-test-no-home.db");
+        let mem_path = unique_test_db("no-home");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
 
@@ -483,7 +500,7 @@ mod tests {
             description: "Demo greeting skill".into(),
             parameters: serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}}),
         }];
-        let mem_path = std::env::temp_dir().join("prompt-test-hello-world.db");
+        let mem_path = unique_test_db("hello-world");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
 
@@ -515,7 +532,7 @@ mod tests {
                 parameters: serde_json::json!({"type": "object", "properties": {"content": {"type": "string"}}}),
             },
         ];
-        let mem_path = std::env::temp_dir().join("prompt-test-memory-tools.db");
+        let mem_path = unique_test_db("memory-tools");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
 
@@ -537,7 +554,7 @@ mod tests {
             description: "Get current time".into(),
             parameters: serde_json::json!({"type": "object", "properties": {}}),
         }];
-        let mem_path = std::env::temp_dir().join("prompt-test-phi.db");
+        let mem_path = unique_test_db("phi");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
 
@@ -555,7 +572,7 @@ mod tests {
             description: "Get current time".into(),
             parameters: serde_json::json!({"type": "object", "properties": {}}),
         }];
-        let mem_path = std::env::temp_dir().join("prompt-test-policy-filter.db");
+        let mem_path = unique_test_db("policy-filter");
         let _ = std::fs::remove_file(&mem_path);
         let memory = Memory::open(&mem_path).unwrap();
         memory

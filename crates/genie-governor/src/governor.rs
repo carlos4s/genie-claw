@@ -587,7 +587,16 @@ mod tests {
     fn night_model_swap_config() {
         let mut config = test_config();
         config.governor.night_model_swap = true;
-        let db_path = std::env::temp_dir().join("geniepod-test-gov2.db");
+        // Unique per-process DB path; a fixed shared name collides across runs
+        // and users (leftover `-wal`/`-shm` sidecars owned by another user make
+        // the reopened database read-only).
+        let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let db_path = std::env::temp_dir().join(format!(
+            "geniepod-test-gov-{}-{}.db",
+            std::process::id(),
+            id
+        ));
+        let _ = std::fs::remove_file(&db_path);
         let store = Store::open(&db_path).unwrap();
         let mut gov = Governor::new(config, store);
         gov.config.governor.night_start_hour = 0;
@@ -628,7 +637,16 @@ mod tests {
     fn resolves_llm_alias_to_configured_service_unit() {
         let mut config = test_config();
         config.services.llm.systemd_unit = "genie-ai-runtime.service".into();
-        let db_path = std::env::temp_dir().join("geniepod-test-gov-llm-unit.db");
+        // Unique per-process DB path; a fixed shared name collides across runs
+        // and users (leftover `-wal`/`-shm` sidecars owned by another user make
+        // the reopened database read-only).
+        let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let db_path = std::env::temp_dir().join(format!(
+            "geniepod-test-gov-{}-{}.db",
+            std::process::id(),
+            id
+        ));
+        let _ = std::fs::remove_file(&db_path);
         let store = Store::open(&db_path).unwrap();
         let gov = Governor::new(config, store);
 
