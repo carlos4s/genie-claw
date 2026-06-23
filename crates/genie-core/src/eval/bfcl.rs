@@ -1079,6 +1079,27 @@ mod tests {
     }
 
     #[test]
+    fn grounded_metric_credits_matching_activate() {
+        // Positive complement to grounded_metric_keeps_activate_distinct_from_turn_on:
+        // a correctly-predicted `activate` must still be credited — the fix passes
+        // `activate` through, it does not drop it.
+        let case = case(vec![expected(
+            "home_control",
+            serde_json::json!({"action": "activate", "entity": "kitchen lights"}),
+        )]);
+        let response = r#"{"tool":"home_control","arguments":{"action":"activate","entity":"kitchen lights"}}"#;
+        let score = score_response(&case, response);
+        assert!(
+            score.argument_match,
+            "exact activate match must be credited"
+        );
+        assert!(
+            score.grounded_argument_match,
+            "a matching activate must be credited by the grounded metric"
+        );
+    }
+
+    #[test]
     fn loads_jsonl_fixture_and_scores_report() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let cases = load_cases_jsonl(root.join("tests/bfcl/home_tool_cases.jsonl")).unwrap();
