@@ -1042,6 +1042,43 @@ mod tests {
     }
 
     #[test]
+    fn canon_action_contract() {
+        // Lock the scorer's action canonicalization so a future edit can't
+        // re-introduce the activate→turn_on collapse this fix removed (#458).
+        for s in ["turn_on", "enable", "switch_on", "power_on"] {
+            assert_eq!(canon_action(s), "turn_on", "{s} should fold to turn_on");
+        }
+        for s in [
+            "turn_off",
+            "deactivate",
+            "disable",
+            "switch_off",
+            "power_off",
+            "shut_off",
+        ] {
+            assert_eq!(canon_action(s), "turn_off", "{s} should fold to turn_off");
+        }
+        // activate stays distinct — it must NOT fold into turn_on.
+        assert_eq!(canon_action("activate"), "activate");
+        // Every other home_control action passes through unchanged (no cross-collapse).
+        for a in [
+            "toggle",
+            "open",
+            "close",
+            "lock",
+            "unlock",
+            "set_brightness",
+            "set_temperature",
+        ] {
+            assert_eq!(canon_action(a), a, "{a} must pass through unchanged");
+        }
+        // Normalization: case folding plus space/hyphen to underscore.
+        assert_eq!(canon_action(" Turn-On "), "turn_on");
+        assert_eq!(canon_action("ACTIVATE"), "activate");
+        assert_eq!(canon_action("set brightness"), "set_brightness");
+    }
+
+    #[test]
     fn loads_jsonl_fixture_and_scores_report() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let cases = load_cases_jsonl(root.join("tests/bfcl/home_tool_cases.jsonl")).unwrap();
