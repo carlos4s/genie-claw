@@ -2,6 +2,7 @@ pub mod actuation;
 pub mod calc;
 pub mod dispatch;
 mod home;
+pub mod home_action;
 pub mod parser;
 pub mod quick;
 mod system;
