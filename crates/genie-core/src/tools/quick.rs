@@ -81,8 +81,10 @@ pub fn route(text: &str) -> Option<ToolCall> {
         ));
     }
 
-    if let Some((entity, action, value)) = priority_home_control_request(&normalized) {
-        let (action, value) = super::home_action::canonicalize_household_action(action, value);
+    if let Some((entity, action, value)) = priority_home_control_request(&normalized)
+        && let Some((action, value)) =
+            super::home_action::canonicalize_household_action(action, value)
+    {
         let mut args = serde_json::json!({ "entity": entity, "action": action });
         if let Some(value) = value {
             args["value"] = serde_json::json!(value);
@@ -130,8 +132,10 @@ pub fn route(text: &str) -> Option<ToolCall> {
         return Some(tool("play_media", serde_json::json!({ "query": query })));
     }
 
-    if let Some((entity, action, value)) = home_control_request(&normalized) {
-        let (action, value) = super::home_action::canonicalize_household_action(action, value);
+    if let Some((entity, action, value)) = home_control_request(&normalized)
+        && let Some((action, value)) =
+            super::home_action::canonicalize_household_action(action, value)
+    {
         let mut args = serde_json::json!({ "entity": entity, "action": action });
         if let Some(value) = value {
             args["value"] = serde_json::json!(value);
@@ -3351,15 +3355,9 @@ mod tests {
         assert_eq!(call.arguments["entity"], "slow cooker chili");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Stop the sprinklers, it's raining").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "sprinklers");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Stop the sprinklers, it's raining").is_none());
 
-        let call = route("Turn on the porch light when I arrive").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "porch light");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Turn on the porch light when I arrive").is_none());
 
         let call = route("I'm driving home in the rain").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3381,40 +3379,25 @@ mod tests {
         assert_eq!(call.arguments["entity"], "fireplace");
         assert_eq!(call.arguments["action"], "turn_on");
 
-        let call = route("Start the robot mower").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "robot mower");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Start the robot mower").is_none());
 
         let call = route("Turn off the upstairs lights").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "upstairs lights");
         assert_eq!(call.arguments["action"], "turn_off");
 
-        let call = route("Test the smoke detectors").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "smoke detectors");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Test the smoke detectors").is_none());
 
         let call = route("Turn off the TV").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "tv");
         assert_eq!(call.arguments["action"], "turn_off");
 
-        let call = route("Turn on the alarm").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "security alarm");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Turn on the alarm").is_none());
 
-        let call = route("Turn on the pool cleaner").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "pool cleaner");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Turn on the pool cleaner").is_none());
 
-        let call = route("Set the thermostat to Eco mode").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "thermostat");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Set the thermostat to Eco mode").is_none());
 
         let call = route("I'm going to take a nap").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3436,15 +3419,9 @@ mod tests {
         assert_eq!(call.arguments["entity"], "front door");
         assert_eq!(call.arguments["action"], "unlock");
 
-        let call = route("Warm up the car").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "connected car climate");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Warm up the car").is_none());
 
-        let call = route("Send this address to my car").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "car navigation");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Send this address to my car").is_none());
 
         let call = route("I've fallen and I can't get up").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3466,11 +3443,7 @@ mod tests {
         assert_eq!(call.arguments["entity"], "working late family update");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call =
-            route("Jared: Turn off everything downstairs except the kitchen lights").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "downstairs except kitchen lights");
-        assert_eq!(call.arguments["action"], "turn_off");
+        assert!(route("Jared: Turn off everything downstairs except the kitchen lights").is_none());
 
         let call = route("Jared: Run movie night").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3502,20 +3475,11 @@ mod tests {
         assert_eq!(call.arguments["entity"], "personal study scene");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Leo: It's too loud").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "nearby media volume");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: It's too loud").is_none());
 
-        let call = route("Leo: Turn my night-light blue").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "personal night-light");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: Turn my night-light blue").is_none());
 
-        let call = route("Jared: Pause internet for the kids until dinner").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "kids internet");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Pause internet for the kids until dinner").is_none());
 
         let call = route("Mia: Make the hallway safe at night").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3532,15 +3496,9 @@ mod tests {
         assert_eq!(call.arguments["entity"], "outlet spill safety protocol");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Jared: Warm up Sarah's bathroom before her shower").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "sarah bathroom comfort");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Warm up Sarah's bathroom before her shower").is_none());
 
-        let call = route("Mia: Give me focus mode until five").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "personal focus mode");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Give me focus mode until five").is_none());
 
         let call = route("Sarah: Keep the porch from waking the kids tonight").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3584,36 +3542,20 @@ mod tests {
         );
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Jared: Set vacation mode for next week").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(
-            call.arguments["entity"],
-            "scheduled vacation mode next week"
-        );
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Set vacation mode for next week").is_none());
 
         let call = route("Leo: Can the robot vacuum clean under my bed?").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "leo under-bed vacuum zone");
-        assert_eq!(call.arguments["action"], "activate");
+        assert_eq!(call.name, "memory_recall");
 
         let call = route("Mia: Turn off notifications while I'm practicing violin").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(
-            call.arguments["entity"],
-            "mia violin practice notifications"
-        );
-        assert_eq!(call.arguments["action"], "activate");
+        assert_eq!(call.name, "memory_recall");
 
         let call = route("Sarah: Make the kitchen toddler-safe for our visitor").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "toddler-safe kitchen");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Jared: Lock everything except the back gate").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "all locks except back gate");
-        assert_eq!(call.arguments["action"], "lock");
+        assert!(route("Jared: Lock everything except the back gate").is_none());
 
         let call = route("Leo: Make the hallway look like a spaceship").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3625,35 +3567,20 @@ mod tests {
         assert_eq!(call.arguments["entity"], "kids homework mode");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Mia: Put my schedule on the bathroom mirror").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "mia bathroom mirror agenda");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Put my schedule on the bathroom mirror").is_none());
 
-        let call = route("Leo: I'm too hot in bed").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "leo bed cooling comfort");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: I'm too hot in bed").is_none());
 
-        let call = route("Jared: There's water under the sink").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "kitchen sink leak safety");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: There's water under the sink").is_none());
 
         let call = route("Jared: Turn off standby power in the office").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "office standby-safe plugs");
         assert_eq!(call.arguments["action"], "turn_off");
 
-        let call = route("Mia: Block YouTube until I finish math").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "mia youtube access");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Block YouTube until I finish math").is_none());
 
-        let call = route("Jared: Let the contractor into the garage at 10").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "contractor garage access");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Let the contractor into the garage at 10").is_none());
 
         let call = route("Sarah: Set up sleepover guest mode").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3665,13 +3592,7 @@ mod tests {
         assert_eq!(call.arguments["entity"], "leo stars except closet");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Mia: Open my blinds slowly every school morning").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(
-            call.arguments["entity"],
-            "mia school-morning gradual blinds"
-        );
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Open my blinds slowly every school morning").is_none());
 
         let call = route("Mia: Make the shower warm but not steamy").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3684,14 +3605,9 @@ mod tests {
         assert_eq!(call.arguments["action"], "activate");
 
         let call = route("Mia: I heard glass break downstairs").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "downstairs glass-break safety");
-        assert_eq!(call.arguments["action"], "activate");
+        assert_eq!(call.name, "memory_recall");
 
-        let call = route("Leo: Call Mom on the kitchen screen").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "kitchen screen call mom");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: Call Mom on the kitchen screen").is_none());
 
         let call = route("Sarah: Prep the house for the babysitter").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3703,45 +3619,30 @@ mod tests {
         assert_eq!(call.arguments["entity"], "rainy pickup mode");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Leo: The toaster smells smoky!").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "toaster smoke safety");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: The toaster smells smoky!").is_none());
 
         let call = route("Sarah: Make the house better for pollen.").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "pollen mode");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Jared: Turn on the driveway lights only when I pull in.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "driveway arrival lights");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Turn on the driveway lights only when I pull in.").is_none());
 
         let call = route("Mia: Make my room good for a video call.").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "mia video-call room setup");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Sarah: Run the dishwasher after 9.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "dishwasher");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Sarah: Run the dishwasher after 9.").is_none());
 
         let call = route("Jared: Run allergy-day setup.").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "allergy-day setup");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Mia: Wake me with sunlight, not sound.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "mia sunlight alarm");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Wake me with sunlight, not sound.").is_none());
 
-        let call = route("Jared: Show guests only the Wi-Fi and bathroom info.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "limited guest info display");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Show guests only the Wi-Fi and bathroom info.").is_none());
 
         let call = route("Leo: Make my room ready for reading with Dad.").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3758,15 +3659,9 @@ mod tests {
         assert_eq!(call.arguments["entity"], "garage paint ventilation");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Mia: Set my room to sleepover lights.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "mia sleepover lights");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Set my room to sleepover lights.").is_none());
 
-        let call = route("Leo: Make my lights flash when the cookies are done.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "leo cookie timer light alert");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: Make my lights flash when the cookies are done.").is_none());
 
         let call = route("Sarah: Start a calm morning for Leo.").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3783,15 +3678,9 @@ mod tests {
         assert_eq!(call.arguments["entity"], "living room board games");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Mia: Block notifications except Mom during my test practice.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "mia test-practice notifications");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Block notifications except Mom during my test practice.").is_none());
 
-        let call = route("Jared: Start the coffee when I wake up.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "coffee maker wake brew");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Start the coffee when I wake up.").is_none());
 
         let call = route("Leo: I'm cold after bath.").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3799,14 +3688,9 @@ mod tests {
         assert_eq!(call.arguments["action"], "activate");
 
         let call = route("Jared: Run basement flood check.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "basement flood check");
-        assert_eq!(call.arguments["action"], "activate");
+        assert_eq!(call.name, "home_status");
 
-        let call = route("Jared: Create a temporary code for Grandma.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "grandma temporary door code");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Create a temporary code for Grandma.").is_none());
 
         let call = route("Mia: My desk feels glarey.").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3823,10 +3707,7 @@ mod tests {
         assert_eq!(call.arguments["entity"], "upstairs cooling except leo room");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Sarah: Turn off screens during family dinner.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "family dinner screens");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Sarah: Turn off screens during family dinner.").is_none());
 
         let call = route("Leo: Make the stairs bright.").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3839,43 +3720,23 @@ mod tests {
         assert_eq!(call.arguments["entity"], "workshop dust control");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Mia: Make my closet light turn on when I open it.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "mia closet light automation");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Make my closet light turn on when I open it.").is_none());
 
-        let call = route("Jared: Put the house in low-power mode until five.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "low-power mode");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Put the house in low-power mode until five.").is_none());
 
-        let call = route("Leo: Put on an animal show, but not loud.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "leo animal show");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: Put on an animal show, but not loud.").is_none());
 
-        let call = route("Sarah: Keep the front entry lights on until Mia gets home.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(
-            call.arguments["entity"],
-            "front entry lights until mia home"
-        );
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Sarah: Keep the front entry lights on until Mia gets home.").is_none());
 
         let call = route("Leo: I hear dripping.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "nearby leak check");
-        assert_eq!(call.arguments["action"], "activate");
+        assert_eq!(call.name, "memory_recall");
 
         let call = route("Sarah: Start school-night reset.").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "school-night reset");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Jared: Notify me if the freezer goes above 10 degrees.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "freezer temperature alert");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Notify me if the freezer goes above 10 degrees.").is_none());
 
         let call = route("Mia: Turn on only the mirror lights.").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3900,25 +3761,16 @@ mod tests {
         assert_eq!(call.arguments["entity"], "dinner warm until jared arrives");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Mia: Schedule quiet time after school on Wednesdays.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "mia wednesday quiet time");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Schedule quiet time after school on Wednesdays.").is_none());
 
         let call = route("Sarah: Open windows if the air outside is cleaner.").unwrap();
         assert_eq!(call.name, "home_control");
         assert_eq!(call.arguments["entity"], "cleaner outside air window mode");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Jared: Create a holiday lighting schedule.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "holiday lighting schedule");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Create a holiday lighting schedule.").is_none());
 
-        let call = route("Mia: Use my rainy-day alarm tomorrow.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "mia rainy-day alarm");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Use my rainy-day alarm tomorrow.").is_none());
 
         let call = route("Sarah: Start guest breakfast mode.").unwrap();
         assert_eq!(call.name, "home_control");
@@ -3930,21 +3782,11 @@ mod tests {
         assert_eq!(call.arguments["entity"], "leo laundry-room reassurance");
         assert_eq!(call.arguments["action"], "activate");
 
-        let call = route("Sarah: Remind me to check the oven after it preheats.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "oven preheat reminder");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Sarah: Remind me to check the oven after it preheats.").is_none());
 
-        let call =
-            route("Mia: Turn off the hallway camera while sleepover guests change.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "hallway camera sleepover privacy");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Mia: Turn off the hallway camera while sleepover guests change.").is_none());
 
-        let call = route("Leo: Tell me when the cookies are cool enough.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "cookie cooling alert");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: Tell me when the cookies are cool enough.").is_none());
 
         let call =
             route("Jared: Shut off the water automatically if the laundry leaks again.").unwrap();
@@ -3952,20 +3794,11 @@ mod tests {
         assert_eq!(call.arguments["entity"], "automatic laundry leak shutoff");
         assert_eq!(call.arguments["action"], "turn_on");
 
-        let call = route("Leo: Turn on my morning checklist on the wall.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "leo morning checklist display");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Leo: Turn on my morning checklist on the wall.").is_none());
 
-        let call = route("Sarah: Make upstairs warmer when the kids are getting ready.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "kids morning upstairs warmth");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Sarah: Make upstairs warmer when the kids are getting ready.").is_none());
 
-        let call = route("Jared: Run a final safety sweep.").unwrap();
-        assert_eq!(call.name, "home_control");
-        assert_eq!(call.arguments["entity"], "final safety sweep");
-        assert_eq!(call.arguments["action"], "activate");
+        assert!(route("Jared: Run a final safety sweep.").is_none());
 
         let call = route("Is the driveway icy?").unwrap();
         assert_eq!(call.name, "home_status");

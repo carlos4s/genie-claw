@@ -55,17 +55,23 @@ pub(crate) fn canon_home_control_action(raw: &str) -> Option<&'static str> {
     HOME_CONTROL_ACTIONS.iter().copied().find(|&a| a == mapped)
 }
 
+/// Canonicalize a quick-router household action to a valid `home_control` verb,
+/// or `None` to abstain. Only unambiguous rewrites are emitted: an action that
+/// already canonicalizes through [`canon_home_control_action`] (a real verb or a
+/// safe synonym), and `set_level` -> `set_brightness` (the numeric level is a
+/// brightness). Every other household verb returns `None` so the deterministic
+/// path defers to the LLM rather than guessing a concrete actuation. In
+/// particular the `*_except` exclusion verbs are *not* collapsed to their base
+/// verb, which would actuate the entity the user asked to exclude.
 pub fn canonicalize_household_action(
     action: &str,
     value: Option<f64>,
-) -> (&'static str, Option<f64>) {
+) -> Option<(&'static str, Option<f64>)> {
     if let Some(valid) = canon_home_control_action(action) {
-        return (valid, value);
+        return Some((valid, value));
     }
     match action {
-        "set_level" => ("set_brightness", value),
-        "turn_off_except" => ("turn_off", None),
-        "lock_except" => ("lock", None),
-        _ => ("activate", None),
+        "set_level" => Some(("set_brightness", value)),
+        _ => None,
     }
 }

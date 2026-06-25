@@ -55,59 +55,73 @@ const ROUTER_EMITTED_ACTIONS: &[&str] = &[
 ];
 
 #[test]
-fn every_router_emitted_action_canonicalizes_to_a_dispatch_action() {
+fn no_router_action_canonicalizes_to_an_invalid_verb() {
     for &action in ROUTER_EMITTED_ACTIONS {
-        let (canon, _) = canonicalize_household_action(action, None);
-        assert!(
-            HOME_CONTROL_ACTIONS.contains(&canon),
-            "action '{action}' canonicalized to '{canon}', which is not a valid home_control action"
-        );
+        if let Some((canon, _)) = canonicalize_household_action(action, None) {
+            assert!(
+                HOME_CONTROL_ACTIONS.contains(&canon),
+                "action '{action}' canonicalized to '{canon}', not a valid home_control action"
+            );
+        }
     }
 }
 
 #[test]
 fn valid_actions_and_synonyms_pass_through() {
     assert_eq!(
-        canonicalize_household_action("turn_off", None).0,
-        "turn_off"
+        canonicalize_household_action("turn_off", None),
+        Some(("turn_off", None))
     );
-    assert_eq!(canonicalize_household_action("open", None).0, "open");
     assert_eq!(
-        canonicalize_household_action("activate", None).0,
-        "activate"
+        canonicalize_household_action("open", None),
+        Some(("open", None))
     );
-    assert_eq!(canonicalize_household_action("enable", None).0, "turn_on");
+    assert_eq!(
+        canonicalize_household_action("activate", None),
+        Some(("activate", None))
+    );
+    assert_eq!(
+        canonicalize_household_action("enable", None),
+        Some(("turn_on", None))
+    );
 }
 
 #[test]
 fn level_maps_to_set_brightness_and_keeps_value() {
-    let (action, value) = canonicalize_household_action("set_level", Some(90.0));
-    assert_eq!(action, "set_brightness");
-    assert_eq!(value, Some(90.0));
-}
-
-#[test]
-fn except_variants_map_to_base_verb() {
     assert_eq!(
-        canonicalize_household_action("turn_off_except", None).0,
-        "turn_off"
+        canonicalize_household_action("set_level", Some(90.0)),
+        Some(("set_brightness", Some(90.0)))
     );
-    assert_eq!(canonicalize_household_action("lock_except", None).0, "lock");
 }
 
 #[test]
-fn scene_and_mode_verbs_map_to_activate_and_drop_value() {
-    assert_eq!(
-        canonicalize_household_action("apply_scene", None).0,
-        "activate"
-    );
-    let (action, value) = canonicalize_household_action("set_volume", Some(25.0));
-    assert_eq!(action, "activate");
-    assert_eq!(value, None);
+fn exclusion_verbs_abstain_rather_than_drop_the_exception() {
+    assert_eq!(canonicalize_household_action("turn_off_except", None), None);
+    assert_eq!(canonicalize_household_action("lock_except", None), None);
 }
 
 #[test]
-fn quick_router_home_control_emissions_are_all_valid() {
+fn unknown_and_bespoke_verbs_abstain() {
+    for action in [
+        "apply_scene",
+        "activate_until_5pm",
+        "set_volume",
+        "cool_down",
+        "schedule",
+        "run",
+        "create",
+        "show_agenda",
+    ] {
+        assert_eq!(
+            canonicalize_household_action(action, Some(25.0)),
+            None,
+            "'{action}' should abstain, not guess an actuation"
+        );
+    }
+}
+
+#[test]
+fn quick_router_never_emits_an_invalid_home_control_action() {
     let utterances = [
         "Put the house in low power mode until five",
         "Mia: Set my room to sleepover lights.",
@@ -117,10 +131,13 @@ fn quick_router_home_control_emissions_are_all_valid() {
         "Jared: Turn off everything downstairs except the kitchen lights",
         "Leo: Make the stairs bright.",
         "Set the oven to 400 degrees",
+        "Leo: It's too loud",
+        "Warm up the car",
     ];
     for utterance in utterances {
-        let call = route(utterance).expect("utterance should route");
-        if call.name == "home_control" {
+        if let Some(call) = route(utterance)
+            && call.name == "home_control"
+        {
             let action = call.arguments["action"].as_str().unwrap();
             assert!(
                 HOME_CONTROL_ACTIONS.contains(&action),
