@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use genie_common::config::Config;
 
+mod alias_match;
 mod client;
 pub mod entity_fidelity;
 mod policy;

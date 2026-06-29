@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
+use super::alias_match::{self, Match, best_alias_score};
 use super::client::{Entity, HaClient};
 use super::entity_fidelity::{self, DomainArea};
 
@@ -559,30 +560,60 @@ impl HomeAssistantProvider {
             }
         }
 
-        for entity in &graph.entities {
-            if matches!(entity.domain.as_str(), "scene" | "script") {
-                continue;
-            }
-
-            let score = best_alias_score(&query_words, &query_lower, &entity.aliases);
-            if score > 0.42 && best_entity.as_ref().is_none_or(|(s, _)| score > *s) {
-                best_entity = Some((
-                    score,
-                    HomeTarget {
-                        kind: HomeTargetKind::Entity,
-                        query: query.to_string(),
-                        display_name: entity.name.clone(),
-                        entity_ids: vec![entity.entity_id.clone()],
-                        domain: Some(entity.domain.clone()),
-                        area: entity.area.clone(),
-                        confidence: score,
-                        voice_safe: entity.domain != "lock",
-                    },
-                ));
-            }
+        let entity_candidates: Vec<&EntityRef> = graph
+            .entities
+            .iter()
+            .filter(|entity| !matches!(entity.domain.as_str(), "scene" | "script"))
+            .collect();
+        let entity_scores: Vec<f32> = entity_candidates
+            .iter()
+            .map(|entity| best_alias_score(&query_words, &query_lower, &entity.aliases))
+            .collect();
+        if let Match::Unique(index) = alias_match::select_unique(&entity_scores, 0.42) {
+            let entity = entity_candidates[index];
+            let score = entity_scores[index];
+            best_entity = Some((
+                score,
+                HomeTarget {
+                    kind: HomeTargetKind::Entity,
+                    query: query.to_string(),
+                    display_name: entity.name.clone(),
+                    entity_ids: vec![entity.entity_id.clone()],
+                    domain: Some(entity.domain.clone()),
+                    area: entity.area.clone(),
+                    confidence: score,
+                    voice_safe: entity.domain != "lock",
+                },
+            ));
         }
 
         best_scene.or(best_entity).map(|(_, target)| target)
+    }
+
+    /// Names of the distinct entities that tie for the best named-entity score,
+    /// when [`resolve_named_entity`] declined because the query was ambiguous.
+    /// Used to turn a silent non-resolution into a disambiguation prompt.
+    fn ambiguous_entity_names(graph: &HomeGraph, query: &str) -> Option<Vec<String>> {
+        let query_lower = normalize(query);
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        let entity_candidates: Vec<&EntityRef> = graph
+            .entities
+            .iter()
+            .filter(|entity| !matches!(entity.domain.as_str(), "scene" | "script"))
+            .collect();
+        let scores: Vec<f32> = entity_candidates
+            .iter()
+            .map(|entity| best_alias_score(&query_words, &query_lower, &entity.aliases))
+            .collect();
+        match alias_match::select_unique(&scores, 0.42) {
+            Match::Ambiguous(indices) => Some(
+                indices
+                    .into_iter()
+                    .map(|index| entity_candidates[index].name.clone())
+                    .collect(),
+            ),
+            _ => None,
+        }
     }
 
     async fn get_live_entities(&self, entity_ids: &[String]) -> Result<Vec<Entity>> {
@@ -664,6 +695,14 @@ impl HomeAutomationProvider for HomeAssistantProvider {
                     );
                 }
             }
+        }
+
+        if let Some(names) = Self::ambiguous_entity_names(&graph, query) {
+            anyhow::bail!(
+                "'{}' is ambiguous between {} — please say which one",
+                query,
+                names.join(" or ")
+            );
         }
 
         if Self::query_rejects_whole_home_fidelity(&graph, query) {
@@ -1004,42 +1043,6 @@ fn best_area_match(areas: &[AreaRef], query: &str) -> Option<(String, f32)> {
     best
 }
 
-fn best_alias_score(query_words: &[&str], query_lower: &str, aliases: &[String]) -> f32 {
-    aliases
-        .iter()
-        .map(|alias| fuzzy_score(query_words, query_lower, alias))
-        .fold(0.0, f32::max)
-}
-
-fn fuzzy_score(query_words: &[&str], query_lower: &str, candidate: &str) -> f32 {
-    let candidate_words: Vec<&str> = candidate.split_whitespace().collect();
-    let mut score = 0.0;
-
-    if candidate == query_lower {
-        score += 1.0;
-    } else if candidate.contains(query_lower) || query_lower.contains(candidate) {
-        score += 0.75;
-    }
-
-    if !query_words.is_empty() {
-        let matching = query_words
-            .iter()
-            .filter(|query_word| {
-                candidate_words.iter().any(|candidate_word| {
-                    candidate_word.contains(*query_word) || query_word.contains(candidate_word)
-                })
-            })
-            .count();
-        score += (matching as f32 / query_words.len() as f32) * 0.35;
-    }
-
-    if candidate.starts_with(query_lower) {
-        score += 0.15;
-    }
-
-    score.min(1.0)
-}
-
 fn normalize(input: &str) -> String {
     input
         .to_lowercase()
@@ -1301,6 +1304,83 @@ mod tests {
         assert_eq!(target.display_name, "Living Room Lamp");
         assert_eq!(target.confidence, 1.0);
         assert_eq!(target.entity_ids, vec!["light.living_room_lamp"]);
+    }
+
+    fn two_lamp_graph() -> HomeGraph {
+        HomeGraph {
+            areas: vec![
+                AreaRef {
+                    id: "kitchen".into(),
+                    name: "Kitchen".into(),
+                    aliases: vec!["kitchen".into()],
+                },
+                AreaRef {
+                    id: "bedroom".into(),
+                    name: "Bedroom".into(),
+                    aliases: vec!["bedroom".into()],
+                },
+            ],
+            devices: vec![],
+            entities: vec![
+                EntityRef {
+                    entity_id: "light.kitchen".into(),
+                    name: "Kitchen Lamp".into(),
+                    domain: "light".into(),
+                    area: Some("Kitchen".into()),
+                    aliases: vec!["kitchen lamp".into(), "lamp".into(), "light".into()],
+                    state: "off".into(),
+                    capabilities: vec!["turn_on".into()],
+                },
+                EntityRef {
+                    entity_id: "light.bedroom".into(),
+                    name: "Bedroom Lamp".into(),
+                    domain: "light".into(),
+                    area: Some("Bedroom".into()),
+                    aliases: vec!["bedroom lamp".into(), "lamp".into(), "light".into()],
+                    state: "off".into(),
+                    capabilities: vec!["turn_on".into()],
+                },
+            ],
+            scenes: vec![],
+            scripts: vec![],
+            aliases: vec![],
+            domains: vec!["light".into()],
+            capabilities: vec![],
+        }
+    }
+
+    #[test]
+    fn ambiguous_bare_query_declines_instead_of_actuating_first() {
+        let graph = two_lamp_graph();
+        assert!(
+            HomeAssistantProvider::resolve_named_entity(
+                &graph,
+                "lamp",
+                Some(HomeActionKind::TurnOn)
+            )
+            .is_none(),
+            "'lamp' matches two distinct lamps and must not resolve to an arbitrary one"
+        );
+    }
+
+    #[test]
+    fn unique_query_resolves_even_when_others_share_a_synonym() {
+        let graph = two_lamp_graph();
+        let target = HomeAssistantProvider::resolve_named_entity(
+            &graph,
+            "kitchen lamp",
+            Some(HomeActionKind::TurnOn),
+        )
+        .unwrap();
+        assert_eq!(target.entity_ids, vec!["light.kitchen"]);
+    }
+
+    #[test]
+    fn ambiguous_query_reports_candidate_names() {
+        let graph = two_lamp_graph();
+        let names = HomeAssistantProvider::ambiguous_entity_names(&graph, "lamp").unwrap();
+        assert!(names.contains(&"Kitchen Lamp".to_string()));
+        assert!(names.contains(&"Bedroom Lamp".to_string()));
     }
 
     #[test]
